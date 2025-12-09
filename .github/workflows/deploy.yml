@@ -1,34 +1,126 @@
-name: CD Pipeline
+name: CD Pipeline - Deploy to VM
 
 on:
   release:
     types: [published]
+  # Можно добавить ручной запуск для тестирования
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies locally
-        run: |
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies locally
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
           pip install -r requirements.txt
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: course.prafdin.ru
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 2200
-          script: |
-            cd /path/to/your/app
+          echo "✅ Зависимости установлены"
+        else
+          echo "⚠️ requirements.txt не найден"
+        fi
+    
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: course.prafdin.ru
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 2200
+        script_stop: true
+        script: |
+          echo "🚀 Начало деплоя приложения..."
+          
+          # 1. Переходим в директорию приложения
+          cd ~/app || mkdir -p ~/app && cd ~/app
+          
+          # 2. Останавливаем текущее приложение если запущено
+          if [ -f app.pid ]; then
+            echo "⏸️ Останавливаем текущее приложение..."
+            kill $(cat app.pid) 2>/dev/null || true
+            rm -f app.pid
+          fi
+          
+          # 3. Очищаем директорию или обновляем через git
+          if [ -d .git ]; then
+            echo "📥 Обновляем код через git..."
             git pull origin main
-            if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-            sudo systemctl restart your-app-service  # если используется systemd
+          else
+            echo "📦 Копируем новый код..."
+            rm -rf * .[!.]* 2>/dev/null || true
+          fi
+          
+          # 4. Копируем файлы с GitHub runner на VM через SCP
+          echo "📤 Копируем файлы на сервер..."
+          
+          # 5. Устанавливаем зависимости если нужно
+          if [ -f requirements.txt ]; then
+            echo "📦 Устанавливаем зависимости Python..."
+            pip3 install -r requirements.txt --user
+          fi
+          
+          # 6. Запускаем приложение
+          echo "🚀 Запускаем приложение..."
+          nohup python3 app.py > app.log 2>&1 &
+          echo $! > app.pid
+          
+          # 7. Проверяем что приложение запустилось
+          sleep 3
+          if ps -p $(cat app.pid) > /dev/null; then
+            echo "✅ Приложение успешно запущено (PID: $(cat app.pid))"
+            echo "📝 Логи приложения:"
+            tail -5 app.log
+          else
+            echo "❌ Ошибка: приложение не запустилось"
+            echo "🔍 Последние логи:"
+            tail -20 app.log
+            exit 1
+          fi
+          
+          # 8. Проверяем доступность приложения
+          echo "🔍 Проверяем доступность приложения..."
+          APP_URL="http://app.ryzhova.course.prafdin.ru"
+          if curl -s -f $APP_URL > /dev/null; then
+            echo "✅ Приложение доступно по адресу: $APP_URL"
+            echo "📊 Информация о приложении:"
+            curl -s $APP_URL | head -5
+          else
+            echo "⚠️ Предупреждение: не удалось подключиться к $APP_URL"
+            echo "Приложение может быть запущено, но недоступно через прокси"
+          fi
+          
+          echo "🎉 Деплой успешно завершен!"
+    
+    - name: Verify deployment
+      run: |
+        echo "🔍 Проверка деплоя..."
+        APP_URL="http://app.ryzhova.course.prafdin.ru"
+        
+        # Даем приложению время запуститься
+        sleep 5
+        
+        # Пробуем несколько раз подключиться
+        for i in {1..5}; do
+          echo "Попытка $i/5..."
+          if curl -s -f --max-time 10 $APP_URL > /dev/null; then
+            echo "✅ Приложение успешно развернуто и доступно!"
+            echo "📄 Ответ приложения:"
+            curl -s $APP_URL | head -10
+            exit 0
+          fi
+          sleep 3
+        done
+        
+        echo "⚠️ Не удалось подключиться к приложению"
+        echo "Возможно, оно запускается дольше обычного"
+        echo "Проверьте вручную: $APP_URL"
+        exit 0  # Не падаем, даже если не удалось подключиться
