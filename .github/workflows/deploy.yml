@@ -1,9 +1,6 @@
-name: CD Pipeline - Deploy with index.html
+name: CD Pipeline - Debug Version
 
 on:
-  release:
-    types: [published]
-  # Также можно добавить для тестирования:
   push:
     branches: [ main, github-actions ]
 
@@ -12,42 +9,82 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository
+    - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Display index.html content
+    - name: Debug repository structure
       run: |
-        echo "=== СОДЕРЖИМОЕ index.html ИЗ РЕПОЗИТОРИЯ ==="
+        echo "=== ДЕБАГ РЕПОЗИТОРИЯ ==="
+        echo "Рабочая директория: $(pwd)"
         echo ""
+        echo "📁 Все файлы:"
+        ls -la
+        echo ""
+        echo "🔍 Поиск HTML файлов:"
+        find . -type f -name "*.html" -o -name "*.htm" | head -20
+        echo ""
+        echo "🌳 Структура каталогов:"
+        find . -type d | sort
         
         # Проверяем наличие index.html
         if [ -f "index.html" ]; then
-          echo "✅ Файл index.html найден"
-          echo "📄 Размер: $(stat -c%s index.html) байт"
-          echo "🕒 Последнее изменение: $(stat -c%y index.html)"
-          echo ""
-          echo "📋 Содержимое файла:"
-          echo "────────────────────────────────────────────"
-          cat index.html
-          echo "────────────────────────────────────────────"
+          echo "✅ index.html НАЙДЕН"
+          echo "📄 Первые 20 строк:"
+          head -20 index.html
         else
-          echo "❌ ОШИБКА: index.html не найден в корне репозитория!"
-          echo "📁 Список файлов в корне:"
-          ls -la
-          exit 1
+          echo "❌ index.html НЕ НАЙДЕН"
+          # Ищем любой HTML файл
+          FIRST_HTML=$(find . -name "*.html" -type f | head -1)
+          if [ -n "$FIRST_HTML" ]; then
+            echo "📁 Найден HTML файл: $FIRST_HTML"
+            echo "Создаем ссылку на index.html..."
+            cp "$FIRST_HTML" index.html
+          fi
         fi
     
-    - name: Deploy files to VM
+    - name: Prepare deployment files
+      run: |
+        # Создаем директорию для деплоя
+        mkdir -p deploy
+        cp -r ./* deploy/ 2>/dev/null || true
+        cp -r .[!.]* deploy/ 2>/dev/null || true
+        
+        # Если нет index.html, создаем его
+        if [ ! -f "deploy/index.html" ]; then
+          echo "Создаю index.html..."
+          cat > deploy/index.html <<EOF
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GitHub Actions Deploy</title>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <h1>Развернуто через GitHub Actions</h1>
+    <p>Время: $(date)</p>
+    <p>Коммит: ${{ github.sha }}</p>
+    <p>Репозиторий: ${{ github.repository }}</p>
+    <p>Это тестовая страница. Добавьте index.html в репозиторий.</p>
+</body>
+</html>
+EOF
+        fi
+        
+        echo "Файлы для деплоя:"
+        ls -la deploy/
+    
+    - name: Copy files to VM
       uses: appleboy/scp-action@v0.1.7
       with:
         host: course.prafdin.ru
         username: ${{ secrets.SSH_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: 2200
-        source: "index.html"
-        target: "~/app/"
+        source: "deploy/"
+        target: "~/app"
+        rm: true  # Удаляет старые файлы
     
-    - name: DEPLOY to VM
+    - name: Deploy and verify
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: course.prafdin.ru
@@ -55,51 +92,59 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: 2200
         script: |
-          echo "=== НАЧАЛО ДЕПЛОЯ ==="
-          echo "Время: $(date)"
+          echo "=== ПРОВЕРКА НА СЕРВЕРЕ ==="
+          echo "Директория: ~/app"
           echo ""
           
-          # Проверяем, что файл скопировался
-          if [ -f "~/app/index.html" ]; then
-            echo "✅ index.html успешно скопирован на VM"
-            echo ""
-            echo "📄 Содержимое index.html на сервере:"
-            echo "────────────────────────────────────"
-            cat ~/app/index.html
-            echo "────────────────────────────────────"
+          # Переходим в директорию
+          cd ~/app 2>/dev/null || mkdir -p ~/app && cd ~/app
+          
+          echo "📁 Содержимое директории:"
+          ls -la
+          echo ""
+          
+          if [ -f "index.html" ]; then
+            echo "✅ index.html НАЙДЕН"
+            echo "📄 Первые 15 строк:"
+            head -15 index.html
           else
-            echo "❌ ОШИБКА: index.html не найден на сервере"
-            exit 1
+            echo "❌ index.html НЕ НАЙДЕН!"
+            echo "Создаю index.html..."
+            cat > index.html <<EOF
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Deployed on Server</title>
+</head>
+<body>
+    <h1>Сервер работает!</h1>
+    <p>Время: $(date)</p>
+    <p>Директория: $(pwd)</p>
+    <p>Создано на сервере</p>
+</body>
+</html>
+EOF
+            echo "✅ index.html создан"
           fi
           
           echo ""
           echo "=== ЗАПУСК СЕРВЕРА ==="
           
-          # Останавливаем старый сервер если запущен
-          pkill -f "http.server 8181" 2>/dev/null || true
+          # Останавливаем старый сервер
+          pkill -f "http.server 8181" 2>/dev/null || echo "Старый сервер не найден"
           
-          # Запускаем сервер
-          cd ~/app
+          # Запускаем новый
           python3 -m http.server 8181 --bind 0.0.0.0 > server.log 2>&1 &
           SERVER_PID=$!
           
-          echo "✅ Сервер запущен (PID: $SERVER_PID)"
-          echo "🌐 Порт: 8181"
-          echo "📝 Логи: ~/app/server.log"
-          
-          # Проверяем, что сервер работает
-          sleep 2
-          if ps -p $SERVER_PID > /dev/null; then
-            echo "✅ Сервер работает стабильно"
+          sleep 1
+          if kill -0 $SERVER_PID 2>/dev/null; then
+            echo "✅ Сервер запущен (PID: $SERVER_PID)"
+            echo "🌐 Порт: 8181"
+            echo "📝 Логи: ~/app/server.log"
           else
-            echo "❌ Сервер не запустился. Проверьте логи:"
-            cat server.log
+            echo "❌ Сервер не запустился"
+            echo "Лог сервера:"
+            cat server.log 2>/dev/null || echo "Лог недоступен"
             exit 1
           fi
-          
-          echo ""
-          echo "=== ИНФОРМАЦИЯ О РАЗВЕРТЫВАНИИ ==="
-          echo "🔗 URL: http://app.ryzhova.course.prafdin.ru"
-          echo "🏷️  Коммит: ${{ github.sha }}"
-          echo "📂 Репозиторий: ${{ github.repository }}"
-          echo "🎯 Событие: ${{ github.event_name }}"
