@@ -1,69 +1,38 @@
-name: CD - Deploy to Production
+name: CD Pipeline
 
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Deploy to VM via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: course.prafdin.ru
-          port: 2200
-          username: vboxuser
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            echo "Starting deployment at $(date)"
-            echo "================================="
-            
-            # Директория с приложением на ВМ
-            APP_DIR="$HOME/static-website-example"
-            
-            echo "Target directory: $APP_DIR"
-            
-            # Переходим в директорию приложения
-            cd "$APP_DIR" || exit 1
-            
-            # Получаем последние изменения
-            echo "Pulling latest changes..."
-            git fetch origin
-            git checkout github-actions
-            git pull origin github-actions
-            
-            echo "Code updated successfully"
-            
-            # Проверяем, что файлы на месте
-            echo "Checking deployed files:"
-            ls -la index.html css/ || true
-            
-            # Перезапускаем Nginx
-            echo "Restarting Nginx..."
-            sudo systemctl restart nginx
-            
-            # Проверяем статус Nginx
-            echo "Nginx status:"
-            sudo systemctl status nginx --no-pager
-            
-            # Проверяем доступность приложения
-            echo "Checking application availability..."
-            sleep 3
-            
-            if curl -f http://localhost:8181 > /dev/null 2>&1; then
-              echo "Application is running and accessible!"
-              echo "Public URL: http://app.ваш_ID.course.prafdin.ru"
-            else
-              echo "Warning: Could not connect to application"
-              echo "Trying to check logs..."
-              sudo tail -20 /var/log/nginx/error.log || true
-            fi
-            
-            echo "================================="
-            echo "Deployment completed at $(date)"
+    - name: Checkout code from GitHub
+      uses: actions/checkout@v4  # ← ЗАГРУЖАЕТ код из репозитория
+    
+    - name: Copy files to VM
+      uses: appleboy/scp-action@v0.1.7  # ← КОПИРУЕТ на VM
+      with:
+        host: course.prafdin.ru
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 2200
+        source: "index.html app.py requirements.txt"  # ← Файлы из репозитория
+        target: "/home/${{ secrets.SSH_USER }}/app/"
+    
+    - name: Deploy application
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: course.prafdin.ru
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 2200
+        script: |
+          cd ~/app
+          # Устанавливаем зависимости из репозитория
+          pip3 install --break-system-packages -r requirements.txt
+          # Запускаем приложение ИЗ репозитория
+          pkill -f "python3.*app.py" 2>/dev/null || true
+          nohup python3 app.py &
