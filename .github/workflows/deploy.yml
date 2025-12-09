@@ -1,28 +1,23 @@
-name: CD Pipeline - Simple Working
+name: Deploy to Server
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [ github-actions ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
-    - name: DEPLOY
-      uses: appleboy/ssh-action@v1.0.3
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Deploy to server
+      uses: appleboy/scp-action@master
       with:
-        host: course.prafdin.ru
-        username: ${{ secrets.SSH_USER }}  # styzhev
-        key: ${{ secrets.SSH_PRIVATE_KEY }} # ПРИВАТНЫЙ ключ из VM
-        port: 2200
-        script: |
-          echo "✅ SSH AUTH SUCCESSFUL!"
-          echo "User: $(whoami)"
-          
-          # Простой деплой
-          cd ~/app
-          echo '<h1>SSH WORKS!</h1>' > index.html
-          python3 -m http.server 8181 &
-          
-          echo "Site: http://app.ryzhova.course.prafdin.ru"
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_KEY }}
+        port: ${{ secrets.PORT }}
+        source: "./"
+        target: "/var/www/static-website-example/"
