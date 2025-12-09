@@ -1,28 +1,41 @@
-name: CD Pipeline - Simple Working
+name: CD Pipeline
 
 on:
   release:
     types: [published]
+  # или для теста можно использовать push в main
+  # push:
+  #   branches: [ main ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
-    - name: DEPLOY
-      uses: appleboy/ssh-action@v1.0.3
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.7.0
       with:
-        host: course.prafdin.ru
-        username: ${{ secrets.SSH_USER }}  # styzhev
-        key: ${{ secrets.SSH_PRIVATE_KEY }} # ПРИВАТНЫЙ ключ из VM
-        port: 2200
-        script: |
-          echo "✅ SSH AUTH SUCCESSFUL!"
-          echo "User: $(whoami)"
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+    
+    - name: Deploy to VM
+      run: |
+        # Копируем файлы на VM
+        scp -o StrictHostKeyChecking=no -P 2200 \
+          -r ./public/* user@course.prafdin.ru:/var/www/app.ryzhova.course.prafdin.ru/
+        
+        # Запускаем команды на VM
+        ssh -o StrictHostKeyChecking=no -p 2200 \
+          user@course.prafdin.ru "
+          # Останавливаем текущий сервис
+          sudo systemctl stop static-app || true
           
-          # Простой деплой
-          cd ~/app
-          echo '<h1>SSH WORKS!</h1>' > index.html
-          python3 -m http.server 8181 &
+          # Запускаем приложение на порту 8181
+          cd /var/www/app.ryzhova.course.prafdin.ru
+          python3 -m http.server 8181 --bind 0.0.0.0 &
           
-          echo "Site: http://app.ryzhova.course.prafdin.ru"
+          # Или настройте systemd сервис
+          echo 'Application deployed!'
+        "
