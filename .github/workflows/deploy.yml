@@ -1,4 +1,4 @@
-name: CD Pipeline
+name: CD - Deploy to Production
 
 on:
   release:
@@ -10,42 +10,60 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Deploy via SSH
-      uses: appleboy/ssh-action@v1.0.3
-      env:
-        SSH_USER: ${{ secrets.SSH_USER }}
-        SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      with:
-        host: course.prafdin.ru
-        username: ${{ secrets.SSH_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: 2200
-        script: |
-          echo "Starting deployment..."
-          
-          # Подготовка
-          mkdir -p ~/app
-          cd ~/app
-          
-          # Создаем минимальное приложение
-          echo 'from flask import Flask
-          app = Flask(__name__)
-          
-          @app.route("/")
-          def hello():
-              return "<h1>GitHub Actions CD</h1><p>Student: Ryzhova</p>"
-          
-          if __name__ == "__main__":
-              app.run(host="0.0.0.0", port=8181)' > app.py
-          
-          # Устанавливаем Flask
-          pip3 install --break-system-packages flask
-          
-          # Запускаем
-          nohup python3 app.py > ~/app.log 2>&1 &
-          
-          echo "Deployment completed"
-          echo "Check: http://app.ryzhova.course.prafdin.ru"
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Deploy to VM via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: course.prafdin.ru
+          port: 2200
+          username: vboxuser
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "Starting deployment at $(date)"
+            echo "================================="
+            
+            # Директория с приложением на ВМ
+            APP_DIR="$HOME/static-website-example"
+            
+            echo "Target directory: $APP_DIR"
+            
+            # Переходим в директорию приложения
+            cd "$APP_DIR" || exit 1
+            
+            # Получаем последние изменения
+            echo "Pulling latest changes..."
+            git fetch origin
+            git checkout github-actions
+            git pull origin github-actions
+            
+            echo "Code updated successfully"
+            
+            # Проверяем, что файлы на месте
+            echo "Checking deployed files:"
+            ls -la index.html css/ || true
+            
+            # Перезапускаем Nginx
+            echo "Restarting Nginx..."
+            sudo systemctl restart nginx
+            
+            # Проверяем статус Nginx
+            echo "Nginx status:"
+            sudo systemctl status nginx --no-pager
+            
+            # Проверяем доступность приложения
+            echo "Checking application availability..."
+            sleep 3
+            
+            if curl -f http://localhost:8181 > /dev/null 2>&1; then
+              echo "Application is running and accessible!"
+              echo "Public URL: http://app.ваш_ID.course.prafdin.ru"
+            else
+              echo "Warning: Could not connect to application"
+              echo "Trying to check logs..."
+              sudo tail -20 /var/log/nginx/error.log || true
+            fi
+            
+            echo "================================="
+            echo "Deployment completed at $(date)"
