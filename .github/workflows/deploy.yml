@@ -24,7 +24,7 @@ jobs:
       run: |
         # Копируем файлы на VM
         scp -o StrictHostKeyChecking=no -P 2200 \
-          -r ./public/* user@course.prafdin.ru:/var/www/app.ryzhova.course.prafdin.ru/
+          user@course.prafdin.ru "mkdir -p /var/www/app.ryzhova.course.prafdin.ru"
         
         # Запускаем команды на VM
         ssh -o StrictHostKeyChecking=no -p 2200 \
