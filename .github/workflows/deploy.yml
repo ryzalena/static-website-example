@@ -12,7 +12,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Deploy to VM
+    - name: Deploy simple HTTP server
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: course.prafdin.ru
@@ -20,10 +20,10 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: 2200
         script: |
-          echo "Деплой простого HTTP сервера..."
+          echo "Деплой простого HTTP сервера"
           
-          # Создаем простой HTTP сервер без зависимостей
-          cat > ~/simple_server.py << 'END'
+          # Создаем простой HTTP сервер (без зависимостей)
+          cat > /tmp/simple_server.py << 'END'
 import http.server
 import socketserver
 
@@ -31,44 +31,37 @@ PORT = 8181
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
-        if self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            message = "Лабораторная работа №2 - GitHub Actions CD Pipeline"
-            self.wfile.write(message.encode())
-        elif self.path == '/health':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
-            self.end_headers()
-            self.wfile.write(b'OK')
-        else:
-            self.send_response(404)
-            self.end_headers()
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b'GitHub Actions CD Pipeline - Lab 2 Success!')
     
     def log_message(self, format, *args):
         pass
 
-print(f"Запуск сервера на порту {PORT}...")
+print(f"Starting server on port {PORT}")
 with socketserver.TCPServer(("", PORT), Handler) as httpd:
     httpd.serve_forever()
 END
           
           # Останавливаем старое
           pkill -f "python3.*server" 2>/dev/null || true
-          pkill -f "python3.*app" 2>/dev/null || true
+          sleep 1
           
           # Запускаем новое
-          nohup python3 ~/simple_server.py > ~/server.log 2>&1 &
+          nohup python3 /tmp/simple_server.py > /tmp/server.log 2>&1 &
+          SERVER_PID=$!
           
-          echo "Сервер запущен"
-          echo "Проверка через 3 секунды..."
+          echo "Сервер запущен (PID: $SERVER_PID)"
           sleep 3
           
-          if curl -s -f --max-time 5 http://localhost:8181 > /dev/null; then
-            echo "Сервер работает локально"
+          # Быстрая проверка
+          if curl -s http://localhost:8181 > /dev/null; then
+            echo "Сервер работает"
+            echo "Содержимое:"
+            curl -s http://localhost:8181
           else
-            echo "Не удалось подключиться локально"
+            echo "⚠️ Проблемы с сервером"
           fi
           
-          echo "Доступно по: http://app.ryzhova.course.prafdin.ru"
+          echo "🌐 Доступно по: http://app.ryzhova.course.prafdin.ru"
