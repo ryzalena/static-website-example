@@ -3,18 +3,20 @@ import os
 
 app = Flask(__name__)
 
+# Путь к директории с файлами
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 @app.route('/')
 def index():
-    return '''
-    <!DOCTYPE html>
-    <html>
-    <body style="background:blue;color:white;text-align:center;padding:50px">
-    <h1>GitHub Actions CD Pipeline</h1>
-    <p>Student: Ryzhova</p>
-    <p>Lab 2: DevOps</p>
-    </body>
-    </html>
-    '''
+    # Отдаем index.html
+    return send_from_directory(BASE_DIR, 'index.html')
+
+@app.route('/health')
+def health():
+    # Health check endpoint
+    return 'OK', 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8181)
+    print(f"Starting server on port 8181")
+    print(f"Serving files from: {BASE_DIR}")
+    app.run(host='0.0.0.0', port=8181, debug=False)
