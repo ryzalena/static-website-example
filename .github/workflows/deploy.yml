@@ -20,104 +20,64 @@ jobs:
         username: ${{ secrets.SSH_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: 2200
+        script_stop: true
         script: |
-          echo "Начало деплоя приложения..."
+          set -e
+          echo "Деплой приложения..."
           
-          # Создаем и переходим в директорию
-          mkdir -p ~/app
-          cd ~/app
+          APP_DIR="$HOME/app"
+          mkdir -p "$APP_DIR"
+          cd "$APP_DIR"
+          
+          # Используем порт 8282 вместо 8181 (если 8181 занят FRP)
+          APP_PORT=8282
+          FRP_PORT=8181  # Порт который пробрасывает FRP
+          
+          echo "Используемый порт приложения: $APP_PORT"
+          echo "Порт FRP: $FRP_PORT"
           
           # Останавливаем старое приложение
-          echo "Останавливаем старое приложение..."
           pkill -f "python3.*app.py" 2>/dev/null || true
+          sudo fuser -k $APP_PORT/tcp 2>/dev/null || true
           sleep 2
           
-          # Создаем Flask приложение
-          echo "from flask import Flask" > app.py
-          echo "app = Flask(__name__)" >> app.py
-          echo "" >> app.py
-          echo "@app.route('/')" >> app.py
-          echo "def index():" >> app.py
-          echo "    return 'Лабораторная работа №2 - GitHub Actions успешно работает!'" >> app.py
-          echo "" >> app.py
-          echo "@app.route('/health')" >> app.py
-          echo "def health():" >> app.py
-          echo "    return 'OK', 200" >> app.py
-          echo "" >> app.py
-          echo "if __name__ == '__main__':" >> app.py
-          echo "    app.run(host='0.0.0.0', port=8181)" >> app.py
+          # Создаем приложение
+          cat > app.py << EOF
+from flask import Flask
+import time
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return 'GitHub Actions CD - Лабораторная работа 2<br>Порт: $APP_PORT'
+
+@app.route('/health')
+def health():
+    return 'OK', 200
+
+if __name__ == '__main__':
+    print(f"Запуск на порту {APP_PORT}")
+    app.run(host='0.0.0.0', port=APP_PORT, debug=False)
+EOF
           
-          echo "Создан app.py"
+          # Устанавливаем Flask
+          pip3 install --break-system-packages flask
           
-          # Проверяем наличие requirements.txt, если нет - создаем
-          if [ ! -f "requirements.txt" ]; then
-            echo "Flask==2.3.3" > requirements.txt
-            echo "Создан requirements.txt"
-          fi
-          
-          # Устанавливаем зависимости из requirements.txt
-          echo "Устанавливаем зависимости..."
-          pip3 install --break-system-packages -r requirements.txt 2>&1 | grep -E "(Successfully|Installing|error)"
-          
-          # Запускаем приложение
-          echo "Запускаем приложение..."
+          # Запускаем
           nohup python3 app.py > app.log 2>&1 &
-          APP_PID=$!
-          echo $APP_PID > app.pid
+          echo $! > app.pid
           
-          echo "PID приложения: $APP_PID"
+          sleep 3
           
-          # Ждем запуска
-          sleep 5
-          
-          # Проверяем запуск
-          echo "Проверяем состояние приложения..."
-          if ps -p $APP_PID > /dev/null; then
-            echo "Приложение запущено успешно"
-            echo "Логи (последние 5 строк):"
-            tail -5 app.log
+          # Проверяем
+          if curl -s http://localhost:$APP_PORT > /dev/null; then
+            echo "Приложение запущено на порту $APP_PORT"
+            echo "FRP должен пробрасывать порт $FRP_PORT на $APP_PORT"
           else
-            echo "Приложение не запустилось"
-            echo "Полные логи:"
+            echo "Ошибка запуска"
             cat app.log
             exit 1
           fi
           
-          # Локальная проверка
-          echo "Локальная проверка..."
-          if curl -s -f --max-time 5 http://localhost:8181 > /dev/null; then
-            echo "Локально приложение отвечает"
-            echo "Содержимое:"
-            curl -s http://localhost:8181
-          else
-            echo "Не удалось подключиться локально"
-          fi
-          
-          echo "Внешний URL: http://app.ryzhova.course.prafdin.ru"
-          echo "Деплой завершен!"
-    
-    - name: Verify deployment
-      run: |
-        echo "Проверка деплоя..."
-        APP_URL="http://app.ryzhova.course.prafdin.ru"
-        
-        sleep 10
-        
-        for i in {1..5}; do
-          echo "Попытка подключения $i/5..."
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$APP_URL" || echo "000")
-          
-          if [ "$STATUS" = "200" ]; then
-            echo "Успех! HTTP статус: $STATUS"
-            echo "Содержимое страницы:"
-            curl -s "$APP_URL" | head -3
-            exit 0
-          fi
-          
-          echo "Статус: $STATUS, ждем 3 секунды..."
-          sleep 3
-        done
-        
-        echo "Не удалось подключиться к приложению за 25 секунд"
-        echo "Проверьте вручную: $APP_URL"
-        exit 0
+          echo "Проверьте: http://app.ryzhova.course.prafdin.ru"
