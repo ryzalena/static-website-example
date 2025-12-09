@@ -1,11 +1,8 @@
 name: CD Pipeline
 
 on:
-  release:
-    types: [published]
-  # или для теста можно использовать push в main
-  # push:
-  #   branches: [ main ]
+  push:
+    branches: [ main, github-actions ]
 
 jobs:
   deploy:
@@ -22,20 +19,17 @@ jobs:
     
     - name: Deploy to VM
       run: |
-        # Копируем файлы на VM
-        scp -o StrictHostKeyChecking=no -P 2200 \
+        # Копируем ВСЕ файлы из репозитория на VM
+        ssh -o StrictHostKeyChecking=no -p 2200 \
           user@course.prafdin.ru "mkdir -p /var/www/app.ryzhova.course.prafdin.ru"
         
-        # Запускаем команды на VM
+        scp -o StrictHostKeyChecking=no -P 2200 -r \
+          ./* \
+          user@course.prafdin.ru:/var/www/app.ryzhova.course.prafdin.ru/
+        
+        # Перезапускаем сервис
         ssh -o StrictHostKeyChecking=no -p 2200 \
           user@course.prafdin.ru "
-          # Останавливаем текущий сервис
-          sudo systemctl stop static-app || true
-          
-          # Запускаем приложение на порту 8181
           cd /var/www/app.ryzhova.course.prafdin.ru
-          python3 -m http.server 8181 --bind 0.0.0.0 &
-          
-          # Или настройте systemd сервис
-          echo 'Application deployed!'
+          sudo systemctl restart static-app
         "
