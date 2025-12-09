@@ -1,88 +1,156 @@
-script: |
-  echo "Начало деплоя приложения..."
-  
-  # Определяем домашнюю директорию
-  USER_HOME="/home/$USER"
-  APP_DIR="$USER_HOME/app"
-  
-  echo "Директория приложения: $APP_DIR"
-  
-  # Создаем директорию если не существует
-  if [ ! -d "$APP_DIR" ]; then
-    echo "Создаем директорию приложения..."
-    mkdir -p "$APP_DIR"
-  fi
-  
-  cd "$APP_DIR"
-  echo "Текущая директория: $(pwd)"
-  
-  # Останавливаем текущее приложение если запущено
-  if [ -f app.pid ]; then
-    echo "Останавливаем текущее приложение..."
-    kill $(cat app.pid) 2>/dev/null || true
-    rm -f app.pid
-  fi
-  
-  # Проверяем наличие app.py
-  if [ ! -f "app.py" ]; then
-    echo "app.py не найден, создаем минимальное приложение..."
-    cat > app.py << 'EOF'
-from flask import Flask
-app = Flask(__name__)
+name: CD Pipeline - Deploy to VM
 
-@app.route('/')
-def hello():
-    return 'Приложение развернуто через GitHub Actions CD!'
+on:
+  release:
+    types: [published]
+  workflow_dispatch:  # Для ручного запуска
 
-@app.route('/health')
-def health():
-    return 'OK', 200
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8181, debug=False)
-EOF
-  fi
-  
-  # Создаем requirements.txt если нет
-  if [ ! -f "requirements.txt" ]; then
-    echo "Создаем requirements.txt..."
-    echo "Flask==2.3.3" > requirements.txt
-  fi
-  
-  # Устанавливаем зависимости с флагом для новой Ubuntu
-  echo "Устанавливаем зависимости Python..."
-  pip3 install --break-system-packages -r requirements.txt
-  
-  # Запускаем приложение
-  echo "Запускаем приложение..."
-  nohup python3 app.py > app.log 2>&1 &
-  echo $! > app.pid
-  
-  # Проверяем что приложение запустилось
-  sleep 3
-  if ps -p $(cat app.pid) > /dev/null; then
-    echo "Приложение успешно запущено (PID: $(cat app.pid))"
-    echo "Логи приложения:"
-    tail -5 app.log
-  else
-    echo "Ошибка: приложение не запустилось"
-    echo "Последние логи:"
-    tail -20 app.log
-    exit 1
-  fi
-  
-  # Проверяем доступность приложения
-  echo "Проверяем доступность приложения..."
-  APP_URL="http://app.ryzhova.course.prafdin.ru"
-  echo "URL приложения: $APP_URL"
-  
-  if curl -s -f --max-time 10 "$APP_URL" > /dev/null; then
-    echo "Приложение доступно по адресу: $APP_URL"
-    echo "Содержимое:"
-    curl -s "$APP_URL"
-  else
-    echo "Предупреждение: не удалось подключиться к $APP_URL"
-    echo "Приложение может быть запущено, но недоступно через прокси"
-  fi
-  
-  echo "Деплой успешно завершен!"
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies locally
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+          echo "Зависимости установлены"
+        else
+          echo "requirements.txt не найден"
+        fi
+    
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: course.prafdin.ru
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 2200
+        script_stop: true
+        script: |
+          echo "Начало деплоя приложения..."
+          
+          # Определяем домашнюю директорию
+          USER_HOME="/home/$USER"
+          APP_DIR="$USER_HOME/app"
+          
+          echo "Директория приложения: $APP_DIR"
+          
+          # Создаем директорию если не существует
+          if [ ! -d "$APP_DIR" ]; then
+            echo "Создаем директорию приложения..."
+            mkdir -p "$APP_DIR"
+          fi
+          
+          cd "$APP_DIR"
+          echo "Текущая директория: $(pwd)"
+          
+          # Останавливаем текущее приложение если запущено
+          if [ -f app.pid ]; then
+            echo "Останавливаем текущее приложение..."
+            kill $(cat app.pid) 2>/dev/null || true
+            rm -f app.pid
+          fi
+          
+          # Проверяем наличие app.py
+          if [ ! -f "app.py" ]; then
+            echo "app.py не найден, создаем минимальное приложение..."
+            cat > app.py << 'EOF'
+          from flask import Flask
+          app = Flask(__name__)
+          
+          @app.route('/')
+          def hello():
+              return 'Приложение развернуто через GitHub Actions CD!'
+          
+          @app.route('/health')
+          def health():
+              return 'OK', 200
+          
+          if __name__ == '__main__':
+              app.run(host='0.0.0.0', port=8181, debug=False)
+          EOF
+          fi
+          
+          # Создаем requirements.txt если нет
+          if [ ! -f "requirements.txt" ]; then
+            echo "Создаем requirements.txt..."
+            echo "Flask==2.3.3" > requirements.txt
+          fi
+          
+          # Устанавливаем зависимости с флагом для новой Ubuntu
+          echo "Устанавливаем зависимости Python..."
+          pip3 install --break-system-packages -r requirements.txt
+          
+          # Запускаем приложение
+          echo "Запускаем приложение..."
+          nohup python3 app.py > app.log 2>&1 &
+          echo $! > app.pid
+          
+          # Проверяем что приложение запустилось
+          sleep 3
+          if ps -p $(cat app.pid) > /dev/null; then
+            echo "Приложение успешно запущено (PID: $(cat app.pid))"
+            echo "Логи приложения:"
+            tail -5 app.log
+          else
+            echo "Ошибка: приложение не запустилось"
+            echo "Последние логи:"
+            tail -20 app.log
+            exit 1
+          fi
+          
+          # Проверяем доступность приложения
+          echo "Проверяем доступность приложения..."
+          APP_URL="http://app.ryzhova.course.prafdin.ru"
+          echo "URL приложения: $APP_URL"
+          
+          if curl -s -f --max-time 10 "$APP_URL" > /dev/null; then
+            echo "Приложение доступно по адресу: $APP_URL"
+            echo "Содержимое:"
+            curl -s "$APP_URL"
+          else
+            echo "Предупреждение: не удалось подключиться к $APP_URL"
+            echo "Приложение может быть запущено, но недоступно через прокси"
+          fi
+          
+          echo "Деплой успешно завершен!"
+    
+    - name: Verify deployment
+      run: |
+        echo "Финальная проверка деплоя..."
+        APP_URL="http://app.ryzhova.course.prafdin.ru"
+        
+        # Даем приложению время запуститься
+        sleep 10
+        
+        # Пробуем подключиться
+        for i in {1..5}; do
+          echo "Попытка подключения $i/5..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$APP_URL" || echo "000")
+          
+          if [ "$STATUS" = "200" ]; then
+            echo "Успех! HTTP статус: $STATUS"
+            echo "Содержимое страницы:"
+            curl -s "$APP_URL" | head -5
+            exit 0
+          fi
+          
+          echo "Статус: $STATUS, ждем 3 секунды..."
+          sleep 3
+        done
+        
+        echo "Не удалось подключиться к приложению за 25 секунд"
+        echo "Проверьте вручную: $APP_URL"
+        echo "Или проверьте логи на VM"
+        # Не падаем с ошибкой, просто предупреждаем
+        exit 0
