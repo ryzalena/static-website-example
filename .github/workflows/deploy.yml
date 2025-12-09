@@ -1,49 +1,69 @@
-name: CD Pipeline
+name: CD - Deploy to Production
 
 on:
-  push:
-    branches: [ main, github-actions ]
+  release:
+    types: [published]
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Prepare build directory
-      run: |
-        # Создаем директорию public и копируем туда нужные файлы
-        mkdir -p public
-        
-        # Копируем все статические файлы
-        # Если у вас только index.html в корне:
-        cp *.html public/ 2>/dev/null || true
-        cp *.css public/ 2>/dev/null || true
-        cp *.js public/ 2>/dev/null || true
-        
-        # Или если есть специфическая структура
-        # cp -r css js images public/ 2>/dev/null || true
-        
-        echo "Files in public directory:"
-        ls -la public/
-    
-    - name: Setup SSH
-      uses: webfactory/ssh-agent@v0.7.0
-      with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-    
-    - name: Deploy to VM
-      run: |
-        # Копируем подготовленные файлы
-        scp -o StrictHostKeyChecking=no -P 2200 -r \
-          ./public/* \
-          user@course.prafdin.ru:/var/www/app.ryzhova.course.prafdin.ru/
-        
-        # Перезапускаем сервис
-        ssh -o StrictHostKeyChecking=no -p 2200 \
-          user@course.prafdin.ru "
-          cd /var/www/app.ryzhova.course.prafdin.ru
-          sudo systemctl restart static-app
-        "
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Deploy to VM via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: course.prafdin.ru
+          port: 2200
+          username: vboxuser
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "🚀 Starting deployment at $(date)"
+            echo "================================="
+            
+            # Директория с приложением на ВМ
+            APP_DIR="$HOME/static-website-example"
+            
+            echo "📂 Target directory: $APP_DIR"
+            
+            # Переходим в директорию приложения
+            cd "$APP_DIR" || exit 1
+            
+            # Получаем последние изменения
+            echo "🔄 Pulling latest changes..."
+            git fetch origin
+            git checkout github-actions
+            git pull origin github-actions
+            
+            echo "✅ Code updated successfully"
+            
+            # Проверяем, что файлы на месте
+            echo "🔍 Checking deployed files:"
+            ls -la index.html css/ || true
+            
+            # Перезапускаем Nginx
+            echo "🔄 Restarting Nginx..."
+            sudo systemctl restart nginx
+            
+            # Проверяем статус Nginx
+            echo "📊 Nginx status:"
+            sudo systemctl status nginx --no-pager
+            
+            # Проверяем доступность приложения
+            echo "🌐 Checking application availability..."
+            sleep 3
+            
+            if curl -f http://localhost:8181 > /dev/null 2>&1; then
+              echo "✅ Application is running and accessible!"
+              echo "🌍 Public URL: http://app.ваш_ID.course.prafdin.ru"
+            else
+              echo "⚠️  Warning: Could not connect to application"
+              echo "Trying to check logs..."
+              sudo tail -20 /var/log/nginx/error.log || true
+            fi
+            
+            echo "================================="
+            echo "🎉 Deployment completed at $(date)"
