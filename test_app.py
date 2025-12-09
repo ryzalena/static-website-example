@@ -1,3 +1,5 @@
+import os
+
 def test_files_exist():
     """Проверяем наличие необходимых файлов"""
     assert os.path.exists("app.py"), "app.py должен существовать"
