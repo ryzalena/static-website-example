@@ -12,6 +12,23 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
+    - name: Prepare build directory
+      run: |
+        # Создаем директорию public и копируем туда нужные файлы
+        mkdir -p public
+        
+        # Копируем все статические файлы
+        # Если у вас только index.html в корне:
+        cp *.html public/ 2>/dev/null || true
+        cp *.css public/ 2>/dev/null || true
+        cp *.js public/ 2>/dev/null || true
+        
+        # Или если есть специфическая структура
+        # cp -r css js images public/ 2>/dev/null || true
+        
+        echo "Files in public directory:"
+        ls -la public/
+    
     - name: Setup SSH
       uses: webfactory/ssh-agent@v0.7.0
       with:
@@ -19,12 +36,9 @@ jobs:
     
     - name: Deploy to VM
       run: |
-        # Копируем ВСЕ файлы из репозитория на VM
-        ssh -o StrictHostKeyChecking=no -p 2200 \
-          user@course.prafdin.ru "mkdir -p /var/www/app.ryzhova.course.prafdin.ru"
-        
+        # Копируем подготовленные файлы
         scp -o StrictHostKeyChecking=no -P 2200 -r \
-          ./* \
+          ./public/* \
           user@course.prafdin.ru:/var/www/app.ryzhova.course.prafdin.ru/
         
         # Перезапускаем сервис
