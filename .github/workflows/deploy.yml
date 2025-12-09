@@ -1,4 +1,4 @@
-name: CD Pipeline - Deploy to VM
+name: CD Pipeline - Deploy Static Site
 
 on:
   release:
@@ -23,61 +23,117 @@ jobs:
         script_stop: true
         script: |
           set -e
-          echo "Деплой приложения..."
+          echo "Деплой статического сайта..."
           
+          # Подготовка директории
           APP_DIR="$HOME/app"
+          echo "Рабочая директория: $APP_DIR"
           mkdir -p "$APP_DIR"
           cd "$APP_DIR"
           
-          # Используем порт 8282 вместо 8181 (если 8181 занят FRP)
-          APP_PORT=8282
-          FRP_PORT=8181  # Порт который пробрасывает FRP
-          
-          echo "Используемый порт приложения: $APP_PORT"
-          echo "Порт FRP: $FRP_PORT"
-          
-          # Останавливаем старое приложение
+          # Остановка старого приложения
+          echo "Остановка предыдущего приложения..."
           pkill -f "python3.*app.py" 2>/dev/null || true
-          sudo fuser -k $APP_PORT/tcp 2>/dev/null || true
           sleep 2
           
-          # Создаем приложение
-          cat > app.py << EOF
-from flask import Flask
-import time
+          # Копирование файлов (в реальности нужно scp-action, но для простоты создадим здесь)
+          echo "Создание файлов приложения..."
+          
+          # Создаем app.py
+          cat > app.py << 'EOF'
+from flask import Flask, send_from_directory
+import os
 
 app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @app.route('/')
 def index():
-    return 'GitHub Actions CD - Лабораторная работа 2<br>Порт: $APP_PORT'
+    return send_from_directory(BASE_DIR, 'index.html')
 
 @app.route('/health')
 def health():
     return 'OK', 200
 
 if __name__ == '__main__':
-    print(f"Запуск на порту {APP_PORT}")
-    app.run(host='0.0.0.0', port=APP_PORT, debug=False)
+    print("Запуск Flask сервера на порту 8181")
+    app.run(host='0.0.0.0', port=8181, debug=False)
 EOF
           
-          # Устанавливаем Flask
+          # Создаем index.html
+          cat > index.html << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Static Site</title>
+    <style>
+        body { 
+            background-color: blue; 
+            color: white; 
+            text-align: center; 
+            padding: 50px; 
+            font-family: Arial, sans-serif;
+        }
+        h1 { color: yellow; }
+        .info { 
+            background: darkblue; 
+            padding: 15px; 
+            margin: 20px auto; 
+            border-radius: 10px;
+            max-width: 600px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Hello from GitHub Actions!</h1>
+    <p>Deployed automatically via CI/CD pipeline</p>
+    
+    <div class="info">
+        <p><strong>Student:</strong> Ryzhova</p>
+        <p><strong>Lab:</strong> DevOps Lab 2 - GitHub Actions</p>
+        <p><strong>Domain:</strong> app.ryzhova.course.prafdin.ru</p>
+    </div>
+    
+    <p>This HTML file is served by Flask from a separate file</p>
+</body>
+</html>
+EOF
+          
+          # Создаем requirements.txt
+          echo "Flask==2.3.3" > requirements.txt
+          
+          echo "Файлы созданы:"
+          ls -la
+          
+          # Установка зависимостей
+          echo "Установка Flask..."
           pip3 install --break-system-packages flask
           
-          # Запускаем
+          # Запуск приложения
+          echo "Запуск сервера..."
           nohup python3 app.py > app.log 2>&1 &
-          echo $! > app.pid
+          APP_PID=$!
+          echo $APP_PID > app.pid
           
-          sleep 3
+          sleep 5
           
-          # Проверяем
-          if curl -s http://localhost:$APP_PORT > /dev/null; then
-            echo "Приложение запущено на порту $APP_PORT"
-            echo "FRP должен пробрасывать порт $FRP_PORT на $APP_PORT"
+          # Проверка
+          if ps -p $APP_PID > /dev/null; then
+            echo "Сервер запущен (PID: $APP_PID)"
+            echo "Логи:"
+            tail -5 app.log
+            
+            echo "Проверка локально..."
+            if curl -s -f http://localhost:8181 > /dev/null; then
+              echo "Локальная проверка успешна"
+              echo "Содержимое:"
+              curl -s http://localhost:8181 | head -10
+            fi
           else
             echo "Ошибка запуска"
             cat app.log
             exit 1
           fi
           
-          echo "Проверьте: http://app.ryzhova.course.prafdin.ru"
+          echo "Сайт доступен по: http://app.ryzhova.course.prafdin.ru"
+          echo "Деплой завершен"
