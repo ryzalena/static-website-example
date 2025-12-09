@@ -1,6 +1,8 @@
-name: CD Pipeline - Simple Working
+name: CD Pipeline - Full Deploy
 
 on:
+  push:
+    branches: [ main, github-actions ]
   release:
     types: [published]
 
@@ -9,20 +11,86 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: DEPLOY
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Show repository structure
+      run: |
+        echo "📂 Структура репозитория:"
+        find . -type f -name "*.html" -o -name "*.css" -o -name "*.js" | head -30
+        
+        echo ""
+        echo "📄 Содержимое index.html:"
+        echo "══════════════════════════════"
+        if [ -f "index.html" ]; then
+          cat index.html
+        else
+          echo "index.html не найден"
+          # Ищем HTML файлы
+          HTML_FILES=$(find . -name "*.html" -type f | head -5)
+          if [ -n "$HTML_FILES" ]; then
+            echo "Найдены другие HTML файлы:"
+            for file in $HTML_FILES; do
+              echo "📁 $file"
+            done
+          fi
+        fi
+        echo "══════════════════════════════"
+    
+    - name: Copy all files to VM
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: course.prafdin.ru
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 2200
+        source: "*"
+        target: "~/app/"
+        strip_components: 0
+    
+    - name: Deploy and restart server
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: course.prafdin.ru
-        username: ${{ secrets.SSH_USER }}  # styzhev
-        key: ${{ secrets.SSH_PRIVATE_KEY }} # ПРИВАТНЫЙ ключ из VM
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: 2200
         script: |
-          echo "SSH AUTH SUCCESSFUL!"
-          echo "User: $(whoami)"
+          echo "🔄 Остановка текущего сервера..."
+          pkill -f "http.server 8181" 2>/dev/null || echo "Сервер не был запущен"
           
-          # Простой деплой
+          echo "📁 Переход в директорию приложения..."
           cd ~/app
-          echo '<h1>SSH WORKS!</h1>' > index.html
-          python3 -m http.server 8181 &
           
-          echo "Site: http://app.ryzhova.course.prafdin.ru"
+          echo "📊 Содержимое директории:"
+          ls -la
+          
+          echo ""
+          echo "📄 Проверка index.html:"
+          if [ -f "index.html" ]; then
+            echo "✅ index.html найден"
+            echo "Первые 10 строк файла:"
+            head -10 index.html
+          else
+            echo "❌ index.html не найден!"
+            echo "Создаю простой index.html..."
+            echo '<!DOCTYPE html>
+<html>
+<head>
+    <title>Deployed via GitHub Actions</title>
+</head>
+<body>
+    <h1>Deployed via GitHub Actions</h1>
+    <p>Time: $(date)</p>
+    <p>Commit: ${{ github.sha }}</p>
+</body>
+</html>' > index.html
+          fi
+          
+          echo ""
+          echo "🚀 Запуск сервера на порту 8181..."
+          python3 -m http.server 8181 --bind 0.0.0.0 > server.log 2>&1 &
+          
+          echo "✅ Сервер запущен!"
+          echo "🔗 Сайт доступен по: http://app.ryzhova.course.prafdin.ru"
+          echo "📝 Лог сервера: ~/app/server.log"
