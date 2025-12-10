@@ -29,6 +29,10 @@ jobs:
           
           git fetch --all
           git reset --hard origin/github-actions
+
+          git fetch origin github-actions:github-actions
+          git checkout github-actions
+          git pull origin github-actions
           
           # 4. Фиксируем права
           sudo chown -R $USER:$USER .
