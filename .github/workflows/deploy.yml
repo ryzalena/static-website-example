@@ -27,10 +27,8 @@ jobs:
 
           rm -rf ./*
           
-          # 3. Клонируем или копируем
-          git clone https://github.com/ryzalena/static-website-example.git /tmp/new-site
-          cp -r /tmp/new-site/* .
-          rm -rf /tmp/new-site
+          git fetch --all
+          git reset --hard origin/github-actions
           
           # 4. Фиксируем права
           sudo chown -R $USER:$USER .
