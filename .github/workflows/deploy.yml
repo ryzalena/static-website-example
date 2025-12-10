@@ -1,28 +1,39 @@
-name: CD Pipeline - Simple Working
+name: Deploy Static Site
 
 on:
   release:
     types: [published]
+  push:
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
-    - name: DEPLOY
-      uses: appleboy/ssh-action@v1.0.3
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Deploy to VM
+      uses: appleboy/ssh-action@v1
       with:
         host: course.prafdin.ru
-        username: ${{ secrets.SSH_USER }}  # styzhev
-        key: ${{ secrets.SSH_PRIVATE_KEY }} # ПРИВАТНЫЙ ключ из VM
+        username: ваш_пользователь_VM
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: 2200
         script: |
-          echo "SSH AUTH SUCCESSFUL!"
-          echo "User: $(whoami)"
+          # Переходим в директорию
+          cd /var/www/static-website-example
           
-          # Простой деплой
-          cd ~/app
-          echo '<h1>SSH WORKS!</h1>' > index.html
-          python3 -m http.server 8181 &
+          # Обновляем код
+          git fetch origin
+          git reset --hard origin/main
           
-          echo "Site: http://app.ryzhova.course.prafdin.ru"
+          # Или альтернатива: удаляем и клонируем заново
+          # rm -rf /var/www/static-website-example/*
+          # git clone https://github.com/ryzalena/static-website-example.git /var/www/static-website-example
+          
+          # Перезапускаем nginx
+          sudo systemctl reload nginx
+          
+          echo "✅ Deployment completed!"
