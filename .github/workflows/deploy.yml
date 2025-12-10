@@ -4,7 +4,7 @@ on:
   release:
     types: [published]
   push:
-    branches: [main]
+    branches: [github-actions]
 
 jobs:
   deploy:
@@ -18,7 +18,7 @@ jobs:
       uses: appleboy/ssh-action@v1
       with:
         host: course.prafdin.ru
-        username: ваш_пользователь_VM
+        username: styzhev
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: 2200
         script: |
