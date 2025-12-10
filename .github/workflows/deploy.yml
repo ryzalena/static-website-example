@@ -2,7 +2,7 @@ name: Deploy Static Site
 
 on:
   release:
-    types: [published]
+    types: [published, created]
   push:
     branches: [github-actions]
 
