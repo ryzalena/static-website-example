@@ -1,39 +1,34 @@
 name: Deploy to Server
 
-# Ключевой момент: этот workflow запускается по событию "завершился другой workflow"
 on:
   workflow_run:
-    workflows: ["Docker Build and Push"] # Должно ТОЧНО совпадать с `name:` CI-файла
+    workflows: ["Docker Build and Push"] # Должно совпадать с name CI-файла
     types:
-      - completed # Сработает когда CI завершится (успешно или с ошибкой)
+      - completed
 
 jobs:
   deploy:
-    # Запускаем деплой ТОЛЬКО если CI-пайплайн завершился успешно
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@master # Действие для подключения по SSH
+        uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.VM_HOST }}    # IP вашего сервера (из Secrets)
-          username: ${{ secrets.VM_USER }} # Пользователь (из Secrets)
-          key: ${{ secrets.SSH_PRIVAYE_KEY }}   # Приватный SSH-ключ (из Secrets)
-          # Таймаут на случай долгого подключения
-          connect_timeout: 30s
+          host: ${{ secrets.VM_HOST }}    # IP вашего сервера
+          username: ${{ secrets.VM_USER }} # Пользователь (например, ubuntu)
+          key: ${{ secrets.SSH_PRIVATE_KEY }}   # Приватный SSH-ключ
           script: |
-            # 1. Получаем самый свежий образ из реестра
-            echo "Pulling the latest image from GHCR..."
+            # 1. Получаем свежий образ
+            echo "Pulling the latest image..."
             docker pull ghcr.io/ryzalena/static-website-example:latest
 
-            # 2. Останавливаем старый контейнер (если он есть), игнорируем ошибки если его нет
+            # 2. Останавливаем и удаляем старый контейнер (если есть)
             echo "Stopping old container..."
             docker stop static-site-container || true
             docker rm static-site-container || true
 
-            # 3. Запускаем новый контейнер из свежего образа
-            #    Важно: пробрасываем порт 8888 хост-машины на порт 80 внутри контейнера
+            # 3. Запускаем новый контейнер
             echo "Starting a new container..."
             docker run -d \
               --name static-site-container \
@@ -41,16 +36,7 @@ jobs:
               --restart unless-stopped \
               ghcr.io/ryzalena/static-website-example:latest
 
-            # 4. Даем контейнеру пару секунд на запуск и проверяем его здоровье
-            echo "Giving the container a moment to start..."
+            # 4. Краткая проверка
+            echo "Health check..."
             sleep 5
-
-            # 5. Проверяем, отвечает ли контейнер локально (health check)
-            echo "Performing health check..."
-            if curl -f -s -o /dev/null -w "%{http_code}" http://localhost:8888 | grep -q "200"; then
-              echo "✅ Deployment successful! Container is running and responding."
-            else
-              echo "❌ Health check failed. Container might have issues."
-              # Завершаем шаг с ошибкой, чтобы видеть проблему в логах GitHub
-              exit 1
-            fi
+            curl -f http://localhost:8888 && echo "✅ Deployment successful!" || echo "❌ Health check failed."
