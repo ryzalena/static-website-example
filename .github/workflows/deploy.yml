@@ -29,10 +29,8 @@ jobs:
           
           # 3. Клонируем или копируем
           git clone https://github.com/ryzalena/static-website-example.git /tmp/new-site
-          sudo cp -r /tmp/new-site/* .
-          
-          echo "=== AFTER ==="
-          ls -la
+          cp -r /tmp/new-site/* .
+          rm -rf /tmp/new-site
           
           # 4. Фиксируем права
           sudo chown -R $USER:$USER .
