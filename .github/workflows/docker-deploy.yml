@@ -2,9 +2,8 @@ name: Deploy to Server
 
 on:
   workflow_run:
-    workflows: ["Docker Build and Push"] # Должно совпадать с name CI-файла
-    types:
-      - completed
+    workflows: ["Docker Build and Push"]
+    types: [completed]
 
 jobs:
   deploy:
@@ -13,22 +12,19 @@ jobs:
 
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v2
         with:
-          host: ${{ secrets.VM_HOST }}    # IP вашего сервера
-          username: ${{ secrets.SSH_USER }} # Пользователь (например, ubuntu)
-          key: ${{ secrets.SSH_PRIVATE_KEY }}   # Приватный SSH-ключ
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            # 1. Получаем свежий образ
             echo "Pulling the latest image..."
             docker pull ghcr.io/ryzalena/static-website-example:latest
 
-            # 2. Останавливаем и удаляем старый контейнер (если есть)
             echo "Stopping old container..."
             docker stop static-site-container || true
             docker rm static-site-container || true
 
-            # 3. Запускаем новый контейнер
             echo "Starting a new container..."
             docker run -d \
               --name static-site-container \
@@ -36,7 +32,6 @@ jobs:
               --restart unless-stopped \
               ghcr.io/ryzalena/static-website-example:latest
 
-            # 4. Краткая проверка
             echo "Health check..."
             sleep 5
             curl -f http://localhost:8888 && echo "✅ Deployment successful!" || echo "❌ Health check failed."
