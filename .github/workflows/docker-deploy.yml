@@ -16,7 +16,7 @@ jobs:
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.VM_HOST }}    # IP вашего сервера
-          username: ${{ secrets.VM_USER }} # Пользователь (например, ubuntu)
+          username: ${{ secrets.SSH_USER }} # Пользователь (например, ubuntu)
           key: ${{ secrets.SSH_PRIVATE_KEY }}   # Приватный SSH-ключ
           script: |
             # 1. Получаем свежий образ
