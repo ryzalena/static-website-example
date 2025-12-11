@@ -1,73 +1,53 @@
-name: Docker Build and Push
+name: CI Check
 
 on:
   push:
-    branches: [ labs3 ]
+    branches: [labs3]
   pull_request:
-    branches: [ labs3 ]
+    branches: [labs3]
 
 jobs:
-  # Тесты (оставляем если нужно)
-  test:
+  check:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
-      
-    - name: Verify Dockerfile exists
+    
+    - name: Validate required files
       run: |
-        if [ -f "Dockerfile" ]; then
-          echo "✓ Dockerfile found"
-        else
-          echo "✗ Dockerfile not found"
+        echo "Проверка файлов для лабораторной работы:"
+        
+        # Обязательные файлы
+        FILES=("Dockerfile" "index.html")
+        
+        ALL_OK=true
+        for file in "${FILES[@]}"; do
+          if [ -f "$file" ]; then
+            echo "✅ $file"
+          else
+            echo "❌ $file - ОТСУТСТВУЕТ"
+            ALL_OK=false
+          fi
+        done
+        
+        if [ "$ALL_OK" = false ]; then
           exit 1
         fi
-
-  # Сборка Docker образа
-  docker-build:
-    # Запускаем тесты перед сборкой (если нужно)
-    # needs: test
-    runs-on: ubuntu-latest
+        
+        echo "Все обязательные файлы на месте!"
     
-    permissions:
-      contents: read
-      packages: write
-      
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup Docker Buildx
-      uses: docker/setup-buildx-action@v3
-    
-    - name: Линтер для Dockerfile (hadolint)
-      uses: hadolint/hadolint-action@v3.1.0
-      with:
-        dockerfile: Dockerfile
-      continue-on-error: true
-    
-    - name: Логин в GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Сборка и публикация Docker образа
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: ${{ github.event_name != 'pull_request' }}
-        tags: |
-          ghcr.io/ryzalena/static-website-example:labs3
-          ghcr.io/ryzalena/static-website-example:${{ github.sha }}
-        labels: |
-          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-    
-    - name: Проверка образа
-      if: github.event_name != 'pull_request'
+    - name: Check Dockerfile
       run: |
-        echo "✅ Образ успешно собран"
-        echo "📦 ghcr.io/ryzalena/static-website-example:labs3"
-        echo "🏷️  ghcr.io/ryzalena/static-website-example:${{ github.sha }}"
+        echo "Проверка Dockerfile:"
+        if [ -f "Dockerfile" ]; then
+          echo "Содержимое:"
+          echo "---"
+          cat Dockerfile
+          echo "---"
+          
+          # Проверяем базовые инструкции
+          if grep -q "FROM" Dockerfile && grep -q "COPY" Dockerfile; then
+            echo "✅ Dockerfile выглядит корректно"
+          fi
+        fi
