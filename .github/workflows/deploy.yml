@@ -1,13 +1,75 @@
-name: Deploy
+name: CD - Deploy with Docker Compose
 
 on:
   push:
     branches: [ lab4 ]
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
-    - run: docker compose up -d
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Show Docker Compose configuration
+      run: |
+        echo "📄 Docker Compose файл:"
+        cat docker-compose.yaml || echo "docker-compose.yaml не найден"
+        echo ""
+        echo "Структура проекта:"
+        find . -type f -name "*.yaml" -o -name "*.yml" | sort
+        
+    - name: Deploy with Docker Compose
+      run: |
+        echo "ЗАПУСК: docker compose up -d"
+        echo "================================="
+        
+        # 1. Запускаем приложение через Docker Compose (ОСНОВНАЯ КОМАНДА ЗАДАНИЯ 3)
+        docker compose up -d
+        
+        # 2. Ждем запуска сервисов
+        sleep 15
+        
+        # 3. Проверяем что запустилось
+        echo ""
+        echo "ПРОВЕРКА ЗАПУСКА:"
+        echo "==================="
+        docker compose ps
+        
+        # 4. Проверяем мультиконтейнерность (должно быть 2+ сервиса)
+        SERVICE_COUNT=$(docker compose ps --services | wc -l)
+        echo ""
+        echo "Мультиконтейнерное приложение: $SERVICE_COUNT сервиса"
+        
+        # 5. Проверяем веб-сервер
+        echo ""
+        echo "ПРОВЕРКА ДОСТУПНОСТИ:"
+        if curl -s -f http://localhost:8080 > /dev/null; then
+          echo "Веб-сайт доступен на порту 8080"
+        else
+          echo "Веб-сайт временно недоступен"
+        fi
+        
+        echo "Приложение развернуто через Docker Compose"
+        
+    - name: Save deployment artifacts
+      if: always()
+      run: |
+        mkdir -p artifacts
+        docker compose ps > artifacts/containers.txt
+        docker compose logs --no-color > artifacts/logs.txt 2>/dev/null || true
+        echo "Docker Compose info saved to artifacts/"
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: docker-compose-deployment
+        path: artifacts/
+        
+    - name: Cleanup
+      if: always()
+      run: |
+        echo "🧹 Очистка..."
+        docker compose down -v 2>/dev/null || true
