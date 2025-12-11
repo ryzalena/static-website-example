@@ -31,7 +31,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/ryzalena/static-site-lab3:latest
+            ghcr.io/ryzalena/static-site:latest
 
           labels: |
             org.opencontainers.image.source=https://github.com/ryzalena/static-website-example
