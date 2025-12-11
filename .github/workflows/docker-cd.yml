@@ -1,44 +1,56 @@
-name: Deploy to Production
+name: CD Deploy
 
 on:
   release:
-    types: [published]  # Запускается сразу при публикации релиза
+    types: [published]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Extract release tag
-        id: get_tag
-        run: echo "TAG=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 2200
-          script: |
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p 2200 course.prafdin.ru >> ~/.ssh/known_hosts
+
+      - name: Deploy on server
+        run: |
+          ssh -p 2200 ryzhova@course.prafdin.ru << 'EOF'
+            # Получаем тег релиза
+            RELEASE_TAG="${{ github.event.release.tag_name }}"
+            echo "🚀 Starting deployment of version: $RELEASE_TAG"
+            
             # Логинимся в GHCR
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # Останавливаем старый контейнер
+            # Останавливаем и удаляем старый контейнер
             docker stop static-site-prod 2>/dev/null || true
             docker rm static-site-prod 2>/dev/null || true
             
-            # Запускаем новый с тегом релиза
-            RELEASE_TAG="${{ steps.get_tag.outputs.TAG }}"
-            echo "Deploying version: $RELEASE_TAG"
-            
-            docker pull ghcr.io/${{ github.repository_owner }}/static-site:$RELEASE_TAG
+            # Запускаем новый контейнер с тегом релиза
             docker run -d \
               --name static-site-prod \
               --restart unless-stopped \
               -p 80:80 \
               ghcr.io/${{ github.repository_owner }}/static-site:$RELEASE_TAG
             
-            # Проверяем
-            sleep 3
-            curl -f http://localhost || exit 1
-            echo "Deployment of $RELEASE_TAG completed successfully."
+            # Проверяем работоспособность
+            sleep 5
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost)
+            echo "📡 HTTP Status: $HTTP_STATUS"
+            
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "✅ Deployment successful! App is available at: http://app.${{ secrets.SSH_USER }}.course.prafdin.ru"
+            else
+              echo "❌ Deployment failed! HTTP Status: $HTTP_STATUS"
+              exit 1
+            fi
+          EOF
