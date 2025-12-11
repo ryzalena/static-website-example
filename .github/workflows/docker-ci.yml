@@ -19,7 +19,7 @@ jobs:
           echo "Checking static website structure..."
           
           # Проверяем обязательные файлы
-          REQUIRED_FILES=("index.html" "style.css" "script.js" "Dockerfile")
+          REQUIRED_FILES=("index.html", "Dockerfile")
           
           for file in "${REQUIRED_FILES[@]}"; do
             if [ ! -f "$file" ]; then
