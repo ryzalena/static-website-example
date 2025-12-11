@@ -45,7 +45,7 @@ jobs:
               --name static-site-container \
               --restart unless-stopped \
               -p 8181:80 \
-               ghcr.io/${{ github.repository }}:latest
+               ghcr.io/ryzalena/static-site:latest
           
             sleep 5
             echo "✅ Docker container deployed from registry!"
