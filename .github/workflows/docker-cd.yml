@@ -1,23 +1,24 @@
 name: Deploy to Production
 
 on:
-  workflow_run:
-    workflows: ["Docker Release"]
-    types:
-      - completed
+  release:
+    types: [published]  # Запускается сразу при публикации релиза
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Extract release tag
+        id: get_tag
+        run: echo "TAG=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.SSH_HOST }}       # IP сервера
-          username: ${{ secrets.SSH_USER }}   # Имя пользователя (ryzhova)
-          key: ${{ secrets.SSH_PRIVATE_KEY }} # Приватный ключ
-          port: 2200                          # Прямое указание порта
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 2200
           script: |
             # Логинимся в GHCR
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -26,8 +27,11 @@ jobs:
             docker stop static-site-prod 2>/dev/null || true
             docker rm static-site-prod 2>/dev/null || true
             
-            # Запускаем новый с версией из релиза
-            RELEASE_TAG="${{ github.event.workflow_run.head_branch }}"
+            # Запускаем новый с тегом релиза
+            RELEASE_TAG="${{ steps.get_tag.outputs.TAG }}"
+            echo "Deploying version: $RELEASE_TAG"
+            
+            docker pull ghcr.io/${{ github.repository_owner }}/static-site:$RELEASE_TAG
             docker run -d \
               --name static-site-prod \
               --restart unless-stopped \
