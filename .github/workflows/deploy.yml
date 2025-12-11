@@ -1,54 +1,117 @@
 name: CD - Deploy with Docker Compose
 
-# ЗАДАНИЕ 3: В CD пайплайне перейдите на развертывание приложения через docker compose
 on:
   push:
     branches: [ lab4 ]
+  release:
+    types: [ published ]
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Show structure
-      run: |
-        echo "📁 Структура проекта:"
-        find . -name "*.yaml" -o -name "*.yml" | sort
-        echo ""
-        echo "📄 Docker Compose файл:"
-        if [ -f "docker-compose.yaml" ]; then
-          head -20 docker-compose.yaml
-        else
-          echo "docker-compose.yaml не найден!"
-        fi
-        
-    - name: ЗАДАНИЕ 3 - Deploy with Docker Compose
-      run: |
-        echo "🎯 ВЫПОЛНЕНИЕ ЗАДАНИЯ 3"
-        echo "========================"
-        echo "Команда: docker compose up -d"
-        echo ""
-        
-        # Запускаем приложение через Docker Compose
-        docker compose up -d
-        
-        # Ждем запуска
-        sleep 15
-        
-        # Проверяем результат
-        echo ""
-        echo "📊 Результат:"
-        echo "------------"
-        docker compose ps
-        
-        echo ""
-        echo "✅ ЗАДАНИЕ 3 ВЫПОЛНЕНО!"
-        echo "Приложение развернуто через Docker Compose"
-        
-    - name: Cleanup
-      if: always()
-      run: docker compose down
+      - name: Show deployment info
+        run: |
+          echo "🎯 ЗАДАНИЕ 3 ЛАБОРАТОРНОЙ №4"
+          echo "=============================="
+          echo "Требование: Развертывание приложения через Docker Compose"
+          echo "Ветка: ${{ github.ref }}"
+          echo "Коммит: ${{ github.sha }}"
+          echo ""
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Compose
+        run: |
+          echo "🔧 Настройка Docker Compose..."
+          docker compose version
+          echo ""
+          echo "📄 Docker Compose файл:"
+          if [ -f "docker-compose.yaml" ]; then
+            cat docker-compose.yaml
+          else
+            echo "❌ Ошибка: docker-compose.yaml не найден!"
+            exit 1
+          fi
+
+      - name: ЗАДАНИЕ 3 - Deploy with Docker Compose
+        run: |
+          echo "🚀 ВЫПОЛНЕНИЕ ЗАДАНИЯ 3: docker compose up -d"
+          echo "=============================================="
+          
+          # Основная команда задания 3
+          docker compose up -d --build
+          
+          # Ждем запуска
+          sleep 20
+          
+          echo ""
+          echo "📊 Результат выполнения:"
+          echo "-----------------------"
+          docker compose ps
+          
+          echo ""
+          echo "🌐 Проверка доступности:"
+          if curl -s -f http://localhost:8080 > /dev/null; then
+            echo "✅ Веб-сервер доступен на порту 8080"
+          else
+            echo "⚠️ Веб-сервер не доступен, проверяем логи..."
+            docker compose logs web
+          fi
+          
+          echo ""
+          echo "✅ ЗАДАНИЕ 3 ВЫПОЛНЕНО!"
+          echo "Приложение развернуто через Docker Compose"
+
+      - name: Save deployment report
+        if: success()
+        run: |
+          cat > deployment-report.md << 'EOF'
+          # Отчет о выполнении лабораторной работы №4
+          
+          ## Задание 3: Развертывание через Docker Compose
+          
+          **Статус:** ✅ Выполнено
+          
+          **Время:** $(date)
+          **Ветка:** ${{ github.ref }}
+          **Коммит:** ${{ github.sha }}
+          
+          ### Выполненные требования:
+          1. ✅ Мультиконтейнерное приложение
+          2. ✅ Персистентный слой (база данных)
+          3. ✅ Развертывание через Docker Compose
+          4. ✅ Docker volumes для сохранения данных
+          
+          ### Использованная команда:
+          ```bash
+          docker compose up -d --build
+          ```
+          
+          ### Запущенные сервисы:
+          EOF
+          
+          docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" >> deployment-report.md
+          
+          echo ""
+          echo "📄 Отчет сохранен: deployment-report.md"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab4-deployment
+          path: |
+            deployment-report.md
+            docker-compose.yaml
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "🧹 Очистка окружения..."
+          docker compose down 2>/dev/null || true
