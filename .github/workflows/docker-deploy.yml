@@ -1,15 +1,9 @@
 name: Deploy on Release or Push
 
 on:
-  # При релизе
-  release:
-    types: [published]
-  
-  # При пуш в labs3
   push:
     branches: [labs3]
   
-  # Ручной запуск
   workflow_dispatch:
 
 jobs:
@@ -17,44 +11,36 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Determine deployment type
-      id: deploy-info
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.7.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+    
+    - name: Add host to known_hosts
       run: |
-        if [ "${{ github.event_name }}" = "release" ]; then
-          echo "type=release" >> $GITHUB_OUTPUT
-          echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-          echo "message=🚀 Deploying release: ${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-        else
-          echo "type=push" >> $GITHUB_OUTPUT
-          echo "tag=labs3" >> $GITHUB_OUTPUT
-          echo "message=📦 Deploying latest labs3 branch" >> $GITHUB_OUTPUT
-        fi
-
+        mkdir -p ~/.ssh
+        ssh-keyscan -p 2200 course.prafdin.ru >> ~/.ssh/known_hosts
+        chmod 644 ~/.ssh/known_hosts
+        echo "✅ Host added to known_hosts"
+    
     - name: Deploy to server
       run: |
-        echo "${{ steps.deploy-info.outputs.message }}"
+        echo "📦 Deploying latest labs3 branch"
         
-        ssh -p 2200 ryzhova@course.prafdin.ru "
-          # Определяем образ
-          if [ '${{ steps.deploy-info.outputs.type }}' = 'release' ]; then
-            IMAGE_TAG='${{ github.event.release.tag_name }}'
-          else
-            IMAGE_TAG='labs3'
-          fi
+        # Простой деплой
+        ssh -o StrictHostKeyChecking=no -p 2200 styzhev@course.prafdin.ru "
+          # 1. Логин в registry
+          echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u 'ryzalena' --password-stdin
           
-          echo 'Using image tag: \$IMAGE_TAG'
-          
-          # Логин в registry
-          echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
-          
-          # Останавливаем старый контейнер
+          # 2. Останавливаем старый контейнер
           docker stop website 2>/dev/null || true
           docker rm website 2>/dev/null || true
           
-          # Запускаем новый
-          docker pull ghcr.io/ryzalena/static-website-example:\$IMAGE_TAG
-          docker run -d --name website -p 80:80 \
-            ghcr.io/ryzalena/static-website-example:\$IMAGE_TAG
+          # 3. Запускаем новый
+          docker pull ghcr.io/ryzalena/static-website-example:labs3
+          docker run -d --name website -p 80:80 \\
+            ghcr.io/ryzalena/static-website-example:labs3
             
           echo '✅ Deployment complete!'
+          echo '🌐 App available at: http://app.ryzhova.course.prafdin.ru'
         "
