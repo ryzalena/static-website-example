@@ -3,7 +3,7 @@ services:
     image: nginx:alpine
     container_name: static-website-nginx
     ports:
-      - "8080:80"
+      - "8088:80"
     volumes:
       - ./public:/usr/share/nginx/html:ro
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
