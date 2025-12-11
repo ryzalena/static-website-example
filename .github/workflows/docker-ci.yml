@@ -28,7 +28,6 @@ jobs:
         with:
           context: .
           push: true
-          # ← ИСПРАВЛЕНО: ваш правильный тег
           tags: |
             ghcr.io/ryzalena/static-site-lab3:latest
 
