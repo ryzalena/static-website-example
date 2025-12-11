@@ -28,17 +28,17 @@ jobs:
           # 3. index.html если его нет
           if [ ! -f "public/index.html" ]; then
             cat > public/index.html << 'EOF'
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Static Site - Lab 4</title>
-</head>
-<body>
-    <h1>Docker Compose Lab</h1>
-    <p>CI/CD Pipeline</p>
-</body>
-</html>
-EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Static Site - Lab 4</title>
+          </head>
+          <body>
+              <h1>Docker Compose Lab</h1>
+              <p>CI/CD Pipeline</p>
+          </body>
+          </html>
+          EOF
           fi
           
           echo "✅ Файлы созданы"
