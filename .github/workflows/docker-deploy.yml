@@ -1,16 +1,32 @@
-name: Deploy on Release or Push
+name: Docker Deploy to Production
 
 on:
-  push:
-    branches: [labs3]
+  # 1. После успешной сборки
+  workflow_run:
+    workflows: ["Docker Build and Push"]
+    types: [completed]
   
+  # 2. При релизе
+  release:
+    types: [published]
+  
+  # 3. Ручной запуск
   workflow_dispatch:
 
 jobs:
   deploy:
+    # Условия запуска
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      github.event_name == 'release' ||
+      github.event_name == 'workflow_dispatch'
+    
     runs-on: ubuntu-latest
     
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
     - name: Setup SSH
       uses: webfactory/ssh-agent@v0.7.0
       with:
@@ -21,26 +37,100 @@ jobs:
         mkdir -p ~/.ssh
         ssh-keyscan -p 2200 course.prafdin.ru >> ~/.ssh/known_hosts
         chmod 644 ~/.ssh/known_hosts
-        echo "✅ Host added to known_hosts"
     
-    - name: Deploy to server
+    - name: Определяем тег образа
+      id: tag
       run: |
-        echo "📦 Deploying latest labs3 branch"
+        if [ "${{ github.event_name }}" = "release" ]; then
+          echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          echo "message=🚀 Деплой релиза ${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+        elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+          # Получаем тег из workflow run
+          RUN_ID=${{ github.event.workflow_run.id }}
+          # Для простоты используем labs3
+          echo "tag=labs3" >> $GITHUB_OUTPUT
+          echo "message=📦 Деплой ветки labs3" >> $GITHUB_OUTPUT
+        else
+          echo "tag=labs3" >> $GITHUB_OUTPUT
+          echo "message=🛠️ Ручной деплой" >> $GITHUB_OUTPUT
+        fi
         
-        # Простой деплой
+        echo "Используем тег: ${{ steps.tag.outputs.tag }}"
+    
+    - name: Деплой на сервер
+      run: |
+        echo "${{ steps.tag.outputs.message }}"
+        
+        IMAGE_NAME="ghcr.io/ryzalena/static-website-example:${{ steps.tag.outputs.tag }}"
+        
         ssh -o StrictHostKeyChecking=no -p 2200 styzhev@course.prafdin.ru "
-          # 1. Логин в registry
+          echo '=== Начинаем деплой ==='
+          echo 'Образ: $IMAGE_NAME'
+          echo ''
+          
+          # 1. Логинимся в registry
+          echo '🔐 Логин в GitHub Container Registry...'
           echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u 'ryzalena' --password-stdin
           
           # 2. Останавливаем старый контейнер
+          echo '🛑 Останавливаем старый контейнер...'
           docker stop website 2>/dev/null || true
           docker rm website 2>/dev/null || true
           
-          # 3. Запускаем новый
-          docker pull ghcr.io/ryzalena/static-website-example:labs3
-          docker run -d --name website -p 80:80 \\
-            ghcr.io/ryzalena/static-website-example:labs3
-            
-          echo '✅ Deployment complete!'
-          echo '🌐 App available at: http://app.ryzhova.course.prafdin.ru'
+          # 3. Пробуем скачать указанный тег
+          echo '📥 Загружаем Docker образ...'
+          if docker pull \"$IMAGE_NAME\"; then
+            echo '✅ Образ загружен'
+          else
+            echo '⚠️  Не удалось загрузить $IMAGE_NAME'
+            echo 'Пробуем тег labs3...'
+            docker pull ghcr.io/ryzalena/static-website-example:labs3
+            IMAGE_NAME='ghcr.io/ryzalena/static-website-example:labs3'
+          fi
+          
+          # 4. Запускаем контейнер
+          echo '▶️  Запускаем контейнер...'
+          docker run -d \\
+            --name website \\
+            --restart unless-stopped \\
+            -p 80:80 \\
+            -e \"VERSION=${{ steps.tag.outputs.tag }}\" \\
+            -e \"DEPLOY_TIME=\$(date)\" \\
+            \"\$IMAGE_NAME\"
+          
+          # 5. Проверяем
+          sleep 3
+          echo ''
+          echo '📊 Статус контейнера:'
+          docker ps --filter \"name=website\" --format \"table {{.Names}}\\t{{.Status}}\\t{{.Ports}}\\t{{.Image}}\"
+          
+          # 6. Проверяем доступность
+          echo ''
+          echo '🌐 Проверяем доступность...'
+          if curl -s -f http://localhost:80 > /dev/null; then
+            echo '✅ Приложение работает!'
+            echo ''
+            echo '🎉 ДЕПЛОЙ УСПЕШЕН!'
+            echo '🌐 Доступно по адресу:'
+            echo '   http://app.ryzhova.course.prafdin.ru'
+          else
+            echo '❌ Приложение не отвечает'
+            docker logs website
+            exit 1
+          fi
         "
+    
+    - name: Сводка деплоя
+      run: |
+        echo "## 📋 Итог деплоя" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Статус:** ✅ Успешно" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Детали:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Тег образа: \`${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Сервер: \`course.prafdin.ru:2200\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Пользователь: \`styzhev\`" >> $GITHUB_STEP_SUMMARY
+        echo "- URL приложения: [http://app.ryzhova.course.prafdin.ru](http://app.ryzhova.course.prafdin.ru)" >> $GITHUB_STEP_SUMMARY
+        echo "- Время: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Приложение успешно развернуто!" >> $GITHUB_STEP_SUMMARY
