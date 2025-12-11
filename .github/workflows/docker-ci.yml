@@ -3,6 +3,8 @@ name: Build and push Docker image
 on:
   push:
     branches: [ labs3 ]  
+  release:
+    types: [published]
 
 permissions:
   contents: read
