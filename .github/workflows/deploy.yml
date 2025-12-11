@@ -1,216 +1,36 @@
 name: Deploy with Docker Compose
 
-# Когда запускать пайплайн
 on:
   push:
-    branches: [ main, lab4 ]  # При пуше в эти ветки
-  pull_request:
-    branches: [ main, lab4 ]  # И при создании PR
-  workflow_dispatch:          # Ручной запуск
-
-# Переменные окружения
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+    branches: [ lab4, main ]
 
 jobs:
-  # Job 1: Сборка и тестирование
-  build-and-test:
-    runs-on: ubuntu-latest
-    
-    steps:
-    # Шаг 1: Получить код
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    # Шаг 2: Проверить Docker Compose файл
-    - name: Validate docker-compose.yml
-      run: |
-        echo "Проверка docker-compose.yaml..."
-        docker compose config
-        
-    # Шаг 3: Проверить структуру файлов
-    - name: Check project structure
-      run: |
-        echo "Структура проекта:"
-        find . -type f -name "*.yaml" -o -name "*.yml" -o -name "*.html" -o -name "*.css" | sort
-        echo ""
-        echo "Проверка обязательных файлов:"
-        [ -f "docker-compose.yaml" ] && echo "✓ docker-compose.yaml найден" || echo "✗ docker-compose.yaml отсутствует"
-        [ -d "public" ] && echo "✓ Папка public найдена" || echo "✗ Папка public отсутствует"
-        [ -f "public/index.html" ] && echo "✓ index.html найден" || echo "✗ index.html отсутствует"
-        
-    # Шаг 4: Запустить Docker Compose (тестовый запуск)
-    - name: Test Docker Compose
-      run: |
-        echo "Тестовый запуск Docker Compose..."
-        docker compose up -d
-        sleep 10
-        
-        echo "Проверка запущенных контейнеров:"
-        docker compose ps
-        
-        echo "Проверка доступности сервисов:"
-        # Проверяем веб-сервер
-        timeout 10s bash -c 'until curl -f http://localhost:8088; do sleep 1; done' && echo "✓ Веб-сервер доступен"
-        
-        # Останавливаем тестовые контейнеры
-        docker compose down
-        
-  # Job 2: Деплой (если есть куда деплоить)
   deploy:
-    needs: build-and-test  # Зависит от успеха сборки
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/lab4'  # Только для main/lab4 веток
     
     steps:
-    # Шаг 1: Получить код
     - name: Checkout code
       uses: actions/checkout@v4
       
-    # Шаг 2: Настроить Docker
     - name: Set up Docker
       uses: docker/setup-buildx-action@v3
       
-    # Шаг 3: ЗАДАНИЕ 3 - Развернуть через Docker Compose
-    - name: Deploy with Docker Compose
+    - name: Deploy application
       run: |
-        echo "🎯 ВЫПОЛНЕНИЕ ЗАДАНИЯ 3: Развертывание через Docker Compose"
-        echo "======================================================"
+        # ЗАДАНИЕ 3: Развертывание через Docker Compose
+        echo "=== Задание 3: Развертывание через docker compose ==="
         
-        # 1. Проверяем наличие Docker Compose
+        # 1. Проверка Docker Compose
         docker compose version
         
-        # 2. Останавливаем старые контейнеры (если есть)
-        echo "Остановка предыдущих контейнеров..."
-        docker compose down 2>/dev/null || true
+        # 2. Запуск приложения
+        docker compose up -d
         
-        # 3. Запускаем приложение через Docker Compose
-        echo "Запуск docker compose up..."
-        docker compose up -d --build --force-recreate
-        
-        # 4. Ждем запуска
-        echo "Ожидание запуска сервисов..."
-        sleep 15
-        
-        # 5. Проверяем результат
-        echo "Проверка запущенных сервисов:"
+        # 3. Проверка
+        sleep 10
         docker compose ps
         
-        echo "Проверка логов:"
-        docker compose logs --tail=20
+        # 4. Проверка доступности
+        curl -f http://localhost:8088 || exit 1
         
-        # 6. Проверяем доступность
-        echo "Тестирование доступности:"
-        
-        # Веб-сервер
-        if curl -s -f http://localhost:8088 > /dev/null; then
-          echo "✅ Веб-сайт доступен на порту 8088"
-          echo "Сайт: http://localhost:8088"
-        else
-          echo "❌ Веб-сайт недоступен"
-          docker compose logs web
-          exit 1
-        fi
-        
-        # Adminer
-        if curl -s -f http://localhost:8081 > /dev/null; then
-          echo "✅ Adminer доступен на порту 8081"
-          echo "Adminer: http://localhost:8081"
-        else
-          echo "⚠️ Adminer недоступен"
-        fi
-        
-        echo ""
-        echo "======================================================"
-        echo "✅ ЗАДАНИЕ 3 ВЫПОЛНЕНО: Приложение развернуто через Docker Compose!"
-        echo ""
-        echo "Доступные сервисы:"
-        echo "  🌐 Веб-сайт:    http://localhost:8088"
-        echo "  🗄️  Adminer:     http://localhost:8081"
-        echo "  🔧 Команды:     docker compose ps, docker compose logs"
-        
-    # Шаг 4: Сохранить отчет о деплое
-    - name: Save deployment report
-      run: |
-        echo "Создание отчета о деплое..."
-        DEPLOYMENT_TIME=$(date)
-        cat > deploy-report.md << EOF
-        # Отчет о деплое через Docker Compose
-        
-        ## Детали деплоя
-        - Дата и время: $DEPLOYMENT_TIME
-        - Ветка: ${{ github.ref }}
-        - Коммит: ${{ github.sha }}
-        
-        ## Развернутые сервисы
-        1. **web** (nginx) - порт 8088
-        2. **database** (postgres) - внутренняя сеть
-        3. **adminer** - порт 8081
-        
-        ## Проверки
-        - [x] Docker Compose файл валиден
-        - [x] Все сервисы запущены
-        - [x] Веб-сайт доступен
-        - [x] Приложение мультиконтейнерное
-        
-        ## Команды управления
-        \`\`\`bash
-        # Просмотр статуса
-        docker compose ps
-        
-        # Просмотр логов
-        docker compose logs
-        
-        # Остановка
-        docker compose down
-        
-        # Перезапуск
-        docker compose restart
-        \`\`\`
-        
-        ## Архитектура
-        \`\`\`
-        ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-        │    Web      │────▶│  Database   │◀────│   Adminer   │
-        │  (nginx)    │     │ (postgres)  │     │             │
-        │   :8088     │     │   :5432     │     │   :8081     │
-        └─────────────┘     └─────────────┘     └─────────────┘
-        \`\`\`
-        EOF
-        
-        echo "Отчет сохранен в deploy-report.md"
-        
-    # Шаг 5: Уведомление (опционально)
-    - name: Notify success
-      if: success()
-      run: |
-        echo "✅ Деплой успешно завершен!"
-        echo "Приложение развернуто через Docker Compose"
-        
-  # Job 3: Health check (дополнительно)
-  health-check:
-    needs: deploy
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Check application health
-      run: |
-        echo "Проверка здоровья приложения..."
-        
-        # Даем время на полный запуск
-        sleep 30
-        
-        # Проверяем все сервисы
-        echo "1. Проверка контейнеров:"
-        docker compose ps
-        
-        echo "2. Проверка веб-сервера:"
-        curl -f http://localhost:8088 && echo "✓ Веб-сервер работает"
-        
-        echo "3. Проверка volumes:"
-        docker volume ls | grep postgres-data && echo "✓ Volume создан"
-        
-        echo ""
-        echo "🎉 ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ!"
-        echo "Задание 3 выполнено успешно!"
+        echo "✅ Приложение успешно развернуто через Docker Compose!"
