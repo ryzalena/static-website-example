@@ -58,8 +58,8 @@ jobs:
           
           echo ""
           echo "🌐 Проверка доступности:"
-          if curl -s -f http://localhost:8080 > /dev/null; then
-            echo "✅ Веб-сервер доступен на порту 8080"
+          if curl -s -f http://localhost:8088 > /dev/null; then
+            echo "✅ Веб-сервер доступен на порту 8088"
           else
             echo "⚠️ Веб-сервер не доступен, проверяем логи..."
             docker compose logs web
@@ -67,7 +67,26 @@ jobs:
           
           echo ""
           echo "Приложение развернуто через Docker Compose"
-
+      - name: Check if image was rebuilt
+        run: |
+          echo "🔍 Проверка пересборки образа..."
+          
+          # Получаем SHA текущего образа
+          OLD_SHA=$(docker images --quiet ghcr.io/ryzalena/static-site-lab4:latest 2>/dev/null || echo "")
+          
+          # Скачиваем свежий образ
+          docker pull ghcr.io/ryzalena/static-site-lab4:latest
+          
+          # Получаем новый SHA
+          NEW_SHA=$(docker images --quiet ghcr.io/ryzalena/static-site-lab4:latest)
+          
+          if [ "$OLD_SHA" = "$NEW_SHA" ]; then
+            echo "⚠️ Образ НЕ пересобран (SHA одинаковые)"
+          else
+            echo "✅ Образ ПЕРЕСОБРАН!"
+            echo "Старый SHA: $OLD_SHA"
+            echo "Новый SHA: $NEW_SHA"
+          fi
       - name: Save deployment report
         if: success()
         run: |
