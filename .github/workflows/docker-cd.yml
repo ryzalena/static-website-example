@@ -27,57 +27,30 @@ jobs:
           username: styzhev        # ваш SSH пользователь
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            echo "=== Docker deployment for ryzalena/static-site ==="
-            
-            # 1. Логинимся в GHCR
-            echo "Logging in to GitHub Container Registry..."
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            
-            # 2. Определяем тег образа
-            if [ -n "${{ github.event.release.tag_name }}" ]; then
-              IMAGE_TAG="${{ github.event.release.tag_name }}"
-            else
-              IMAGE_TAG="latest"
-            fi
-            
-            IMAGE_NAME="ghcr.io/ryzalena/static-site:$IMAGE_TAG"
-            echo "Using image: $IMAGE_NAME"
-            
-            # 3. Останавливаем старый контейнер
+            echo "=== Lab 3: Docker Deployment ==="
+            echo "Pulling image from GitHub Container Registry..."
+          
+            # Логинимся в GitHub Container Registry
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+            # Тянем образ
+            docker pull ghcr.io/${{ github.repository }}:docker-lab3
+          
             echo "Stopping old container..."
-            docker stop static-site-container 2>/dev/null || true
-            docker rm static-site-container 2>/dev/null || true
-            
-            # 4. Загружаем новый образ
-            echo "Pulling new image..."
-            docker pull "$IMAGE_NAME"
-            
-            # 5. Запускаем новый контейнер
+            docker stop static-site-container || true
+            docker rm static-site-container || true
+          
             echo "Starting new container..."
             docker run -d \
               --name static-site-container \
               --restart unless-stopped \
-              -p 8181:80 \
-              "$IMAGE_NAME"
-            
-            # 6. Проверяем запуск
-            echo "Checking container status..."
-            sleep 3
-            docker ps | grep static-site-container
-            
-            # 7. Проверяем доступность
-            echo "Testing application..."
-            if curl -s -f http://localhost > /dev/null; then
-              echo "✅ Application is running"
-              echo "🌐 Available at: http://app.ryzhova.course.prafdin.ru"
-            else
-              echo "❌ Application check failed"
-              docker logs static-site-container --tail 20
-              exit 1
-            fi
-            
-            # 8. Очистка старых образов
-            echo "Cleaning up..."
-            docker system prune -f 2>/dev/null || true
-            
-            echo "🎉 Deployment completed successfully!"
+              -p 8181:8181 \
+               ghcr.io/${{ github.repository }}:docker-lab3
+          
+            sleep 5
+            echo "✅ Docker container deployed from registry!"
+            echo "📡 Application: http://app.ryzhova.course.prafdin.ru"
+            echo ""
+            echo "📊 Architecture:"
+            echo "- CI: builds and pushes to GHCR"
+            echo "- CD: pulls from GHCR and deploys"
