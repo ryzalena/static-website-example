@@ -1,0 +1,40 @@
+name: Deploy to Production
+
+on:
+  workflow_run:
+    workflows: ["Docker Release"]
+    types:
+      - completed
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}       # IP сервера
+          username: ${{ secrets.SSH_USER }}   # Имя пользователя (ryzhova)
+          key: ${{ secrets.SSH_PRIVATE_KEY }} # Приватный ключ
+          port: 2200                          # Прямое указание порта
+          script: |
+            # Логинимся в GHCR
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Останавливаем старый контейнер
+            docker stop static-site-prod 2>/dev/null || true
+            docker rm static-site-prod 2>/dev/null || true
+            
+            # Запускаем новый с версией из релиза
+            RELEASE_TAG="${{ github.event.workflow_run.head_branch }}"
+            docker run -d \
+              --name static-site-prod \
+              --restart unless-stopped \
+              -p 80:80 \
+              ghcr.io/${{ github.repository_owner }}/static-site:$RELEASE_TAG
+            
+            # Проверяем
+            sleep 3
+            curl -f http://localhost || exit 1
+            echo "Deployment of $RELEASE_TAG completed successfully."
