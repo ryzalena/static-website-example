@@ -3,16 +3,31 @@ name: Docker Build and Push
 on:
   push:
     branches: [ labs3 ]
-    tags: [ 'v*' ]
   pull_request:
     branches: [ labs3 ]
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
 jobs:
-  build-and-push:
+  # Тесты (оставляем если нужно)
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Verify Dockerfile exists
+      run: |
+        if [ -f "Dockerfile" ]; then
+          echo "✓ Dockerfile found"
+        else
+          echo "✗ Dockerfile not found"
+          exit 1
+        fi
+
+  # Сборка Docker образа
+  docker-build:
+    # Запускаем тесты перед сборкой (если нужно)
+    # needs: test
     runs-on: ubuntu-latest
     
     permissions:
@@ -20,65 +35,39 @@ jobs:
       packages: write
       
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-      with:
-        driver-opts: |
-          image=moby/buildkit:master
-          network=host
-
-    - name: Run Hadolint (Dockerfile linter)
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Линтер для Dockerfile (hadolint)
       uses: hadolint/hadolint-action@v3.1.0
       with:
         dockerfile: Dockerfile
       continue-on-error: true
-
-    - name: Log in to GitHub Container Registry
-      uses: docker/login-action@v2
+    
+    - name: Логин в GitHub Container Registry
+      uses: docker/login-action@v3
       with:
-        registry: ${{ env.REGISTRY }}
+        registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Extract metadata (tags, labels)
-      id: meta
-      uses: docker/metadata-action@v4
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=sha,prefix={{branch}}-
-        labels: |
-          org.opencontainers.image.title=Static Website
-          org.opencontainers.image.description=Dockerized static website
-          org.opencontainers.image.vendor=${{ github.repository_owner }}
-
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v4
+    
+    - name: Сборка и публикация Docker образа
+      uses: docker/build-push-action@v5
       with:
         context: .
-        platforms: linux/amd64,linux/arm64
         push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Verify image
+        tags: |
+          ghcr.io/ryzalena/static-website-example:labs3
+          ghcr.io/ryzalena/static-website-example:${{ github.sha }}
+        labels: |
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+    
+    - name: Проверка образа
       if: github.event_name != 'pull_request'
       run: |
-        docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:labs3
-        docker images | grep ${{ github.repository }}
-
-    - name: Update deployment status
-      if: always()
-      run: |
-        echo "Build completed: ${{ job.status }}"
-        echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-        echo "Tags: ${{ steps.meta.outputs.tags }}"
+        echo "✅ Образ успешно собран"
+        echo "📦 ghcr.io/ryzalena/static-website-example:labs3"
+        echo "🏷️  ghcr.io/ryzalena/static-website-example:${{ github.sha }}"
