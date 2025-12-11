@@ -1,49 +1,61 @@
-name: CI - Build Images for Docker Compose
+name: CI - Build Static Site Image
 
 on:
   push:
-    branches: [ lab4 ]  
-  release:
-    types: [published]
-
-permissions:
-  contents: read
-  packages: write
+    branches: [ lab4 ]
 
 jobs:
-  build-and-push:
+  build-web-image:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Create necessary files
+        run: |
+          echo "📝 Создаем необходимые файлы..."
+          
+          # 1. Dockerfile для веб-сайта
+          cat > Dockerfile << 'EOF'
+          FROM nginx:alpine
+            COPY public /usr/share/nginx/html
+          EOF
+          
+          # 2. Папка public если её нет
+          mkdir -p public
+          
+          # 3. index.html если его нет
+          if [ ! -f "public/index.html" ]; then
+            cat > public/index.html << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Static Site - Lab 4</title>
+</head>
+<body>
+    <h1>Docker Compose Lab</h1>
+    <p>CI/CD Pipeline</p>
+</body>
+</html>
+EOF
+          fi
+          
+          echo "✅ Файлы созданы"
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }} 
+          username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker Compose images
-        uses: docker/build-push-action@v5  
+      - name: Build and push web image
+        uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
             ghcr.io/ryzalena/static-site-lab4:latest
-            ghcr.io/ryzalena/static-site-lab4:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/ryzalena/static-website-example
-            lab.work=4
-            docker.compose=true
-
-      - name: Build and push database image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.db
-          push: true
-          tags: |
-            ghcr.io/ryzalena/static-site-db:latest
-            ghcr.io/ryzalena/static-site-db:${{ github.sha }}
