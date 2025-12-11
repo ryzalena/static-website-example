@@ -1,48 +1,155 @@
-name: Deploy to Server
+name: CD Deploy with Docker
 
 on:
-  # Запускаем после успешной сборки
+  # Запускаем после успешной сборки или при релизе
   workflow_run:
     workflows: ["Docker Build and Push"]
     types: [completed]
+    branches: [labs3]
+  
+  # Или ручной запуск
+  workflow_dispatch:
 
 jobs:
   deploy:
-    # Запускаем только если сборка УСПЕШНА
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Запускаем только если сборка успешна
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
-
-    - name: Setup SSH
-      uses: webfactory/ssh-agent@v0.7.0
+      uses: actions/checkout@v4
       with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        ref: labs3
 
-    - name: Deploy to server
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Deploy to VM via SSH
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: course.prafdin.ru
+        username: ryzhova
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 2200
+        script: |
+          # Конфигурация Docker деплоя
+          CONTAINER_NAME="website-container"
+          IMAGE_NAME="ghcr.io/ryzalena/static-website-example:labs3"
+          LOG_FILE="/home/ryzhova/deploy-docker.log"
+          APP_URL="http://app.ryzhova.course.prafdin.ru"
+          
+          # Функция логирования
+          log() {
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
+          }
+          
+          log "🚀 ЗАПУСКАЕМ АВТОМАТИЧЕСКОЕ РАЗВЕРТЫВАНИЕ ЧЕРЕЗ DOCKER (CD):"
+          log "   Ветка: labs3"
+          log "   Пользователь: ryzhova"
+          log "   Хост: course.prafdin.ru:2200"
+          
+          # 1. Логинимся в registry
+          log "   - Логинимся в GitHub Container Registry..."
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+          # 2. Pull latest Docker image из registry
+          log "   - Загружаем Docker образ..."
+          if docker pull $IMAGE_NAME; then
+              log "   ✅ Docker образ загружен"
+          else
+              log "   ❌ Ошибка при загрузке Docker образа"
+              exit 1
+          fi
+          
+          # 3. Останавливаем и удаляем старый контейнер
+          log "   - Останавливаем старый контейнер..."
+          docker stop $CONTAINER_NAME 2>/dev/null || true
+          docker rm $CONTAINER_NAME 2>/dev/null || true
+          
+          # 4. Запускаем новый контейнер
+          log "   - Запускаем новый Docker контейнер..."
+          if docker run -d \
+            --name $CONTAINER_NAME \
+            --restart unless-stopped \
+            -p 80:80 \
+            $IMAGE_NAME; then
+              log "   ✅ Docker контейнер запущен"
+          else
+              log "   ❌ Ошибка при запуске Docker контейнера"
+              exit 1
+          fi
+          
+          # 5. Даем время на запуск
+          sleep 5
+          
+          # 6. Проверяем статус контейнера
+          log "   - Проверяем статус контейнера..."
+          if docker ps | grep -q $CONTAINER_NAME; then
+              log "   ✅ Контейнер $CONTAINER_NAME активен"
+          else
+              log "   ❌ Контейнер не запустился"
+              docker logs $CONTAINER_NAME
+              exit 1
+          fi
+          
+          # 7. Проверяем порт
+          log "   - Проверяем порт 80..."
+          if docker port $CONTAINER_NAME | grep -q "80"; then
+              log "   ✅ Порт 80 проброшен"
+          else
+              log "   ❌ Порт 80 не проброшен"
+              exit 1
+          fi
+          
+          # 8. Проверяем доступность приложения внутри контейнера
+          log "   - Проверяем доступность приложения..."
+          if docker exec $CONTAINER_NAME curl -f http://localhost:80 > /dev/null 2>&1; then
+              log "   ✅ Приложение отвечает на HTTP запросы внутри контейнера"
+          else
+              log "   ❌ Приложение не отвечает внутри контейнера"
+              docker logs $CONTAINER_NAME
+              exit 1
+          fi
+          
+          # 9. Проверяем доступность снаружи
+          log "   - Проверяем внешнюю доступность..."
+          sleep 3
+          if curl -f http://localhost:80 > /dev/null 2>&1; then
+              log "   ✅ Приложение доступно снаружи"
+              log "   🎉 АВТОМАТИЧЕСКОЕ РАЗВЕРТЫВАНИЕ ЧЕРЕЗ DOCKER УСПЕШНО!"
+              log "   🌐 Приложение доступно по: $APP_URL"
+          else
+              log "   ⚠️  Внутренняя проверка пройдена, но внешняя недоступна"
+              log "   ℹ️  Проверьте:"
+              log "      - Настройки nginx на хосте"
+              log "      - Доступность порта 80"
+              log "      - Проксирование на $APP_URL"
+          fi
+          
+          # 10. Очистка старых образов
+          log "   - Очищаем старые Docker образы..."
+          docker image prune -f 2>/dev/null || true
+          log "   ✅ Очистка завершена"
+          
+          # 11. Финальный статус
+          log ""
+          log "📊 ИТОГОВЫЙ СТАТУС:"
+          docker ps --filter "name=$CONTAINER_NAME" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.Image}}"
+          log ""
+          log "📋 ЛОГИ КОНТЕЙНЕРА (последние 10 строк):"
+          docker logs --tail 10 $CONTAINER_NAME
+
+    - name: Verify deployment success
       run: |
-        ssh -o StrictHostKeyChecking=no \
-            -p 2200 \
-            ryzhova@course.prafdin.ru '
-        
-        # Останавливаем старый контейнер
-        docker stop website-container 2>/dev/null || true
-        docker rm website-container 2>/dev/null || true
-        
-        # Логинимся в GitHub Container Registry
-        echo "${{ secrets.GITHUB_TOKEN }}" | \
-          docker login ghcr.io -u ${{ github.actor }} --password-stdin
-        
-        # Скачиваем и запускаем новый контейнер
-        docker pull ghcr.io/ryzalena/static-website-example:labs3
-        docker run -d \
-          --name website-container \
-          --restart unless-stopped \
-          -p 80:80 \
-          ghcr.io/ryzalena/static-website-example:labs3
-        
-        echo "✅ Container started!"
-        '
+        echo "✅ Деплой выполнен"
+        echo "🌐 Приложение должно быть доступно по адресу:"
+        echo "   http://app.ryzhova.course.prafdin.ru"
+        echo ""
+        echo "📋 Для проверки выполните:"
+        echo "   curl -I http://app.ryzhova.course.prafdin.ru"
