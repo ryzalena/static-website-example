@@ -39,3 +39,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Deploy to server (CD trigger)
+        run: |
+          echo "Release ${{ github.event.release.tag_name }} built and pushed. CD workflow will start."
