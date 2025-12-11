@@ -57,7 +57,7 @@ jobs:
             docker run -d \
               --name static-site-container \
               --restart unless-stopped \
-              -p 80:80 \
+              -p 8181:80 \
               "$IMAGE_NAME"
             
             # 6. Проверяем запуск
