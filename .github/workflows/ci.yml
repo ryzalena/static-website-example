@@ -1,0 +1,66 @@
+name: CI - Static Site Validation & Docker Build
+
+on:
+  push:
+    branches: [ '*' ]
+  pull_request:
+    branches: [ 'main', 'master' ]
+
+jobs:
+
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate static site
+        run: |
+          echo "=== ПРОВЕРКА СТАТИЧЕСКОГО САЙТА ==="
+
+          if [ ! -f "index.html" ]; then
+            echo "ОШИБКА: index.html не найден!"
+            exit 1
+          fi
+
+          echo "index.html найден"
+          echo "Размер:"
+          wc -c index.html
+
+          echo "Статический сайт прошёл валидацию!"
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: read
+      packages: write   # нужно для GHCR push
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/myapp
+          tags: |
+            type=sha
+            type=ref,event=branch
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
