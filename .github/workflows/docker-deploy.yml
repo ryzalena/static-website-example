@@ -1,37 +1,160 @@
-name: Deploy to Server
+name: Docker Deploy to Server
 
 on:
   workflow_run:
     workflows: ["Docker Build and Push"]
-    types: [completed]
+    types:
+      - completed
+    branches: [labs3]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  DEPLOY_HOST: course.prafdin.ru
+  DEPLOY_USER: ryzhova
+  DEPLOY_PORT: 2200
+  APP_URL: http://app.ryzhova.course.prafdin.ru
 
 jobs:
   deploy:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v2
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            echo "Pulling the latest image..."
-            docker pull ghcr.io/ryzalena/static-website-example:latest
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        ref: labs3
 
-            echo "Stopping old container..."
-            docker stop static-site-container || true
-            docker rm static-site-container || true
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.7.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-            echo "Starting a new container..."
-            docker run -d \
-              --name static-site-container \
-              -p 8888:80 \
-              --restart unless-stopped \
-              ghcr.io/ryzalena/static-website-example:latest
+    - name: Configure SSH known hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -p ${{ env.DEPLOY_PORT }} ${{ env.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+        chmod 644 ~/.ssh/known_hosts
 
-            echo "Health check..."
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Get latest image tag
+      id: get-tag
+      run: |
+        TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/users/${{ github.repository_owner }}/packages/container/${{ github.event.repository.name }}/versions" \
+          | jq -r '.[0].metadata.container.tags[0]')
+        echo "TAG=${TAG:-labs3}" >> $GITHUB_OUTPUT
+        echo "Using tag: ${TAG:-labs3}"
+
+    - name: Deploy to production server
+      env:
+        FULL_IMAGE_NAME: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.get-tag.outputs.TAG }}
+      run: |
+        echo "Deploying image: $FULL_IMAGE_NAME"
+        
+        # SSH команды для деплоя
+        ssh -o StrictHostKeyChecking=no -p ${{ env.DEPLOY_PORT }} \
+          ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} << 'EOF'
+        
+        # Функция для логирования
+        log() {
+          echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+        }
+        
+        log "Starting deployment..."
+        
+        # Логин в registry
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        
+        # Останавливаем и удаляем старый контейнер
+        log "Stopping old container..."
+        docker stop website-container 2>/dev/null || true
+        docker rm website-container 2>/dev/null || true
+        
+        # Удаляем старые образы
+        log "Cleaning up old images..."
+        docker image prune -af --filter "until=24h"
+        
+        # Скачиваем новый образ
+        log "Pulling new image: $FULL_IMAGE_NAME"
+        docker pull "$FULL_IMAGE_NAME"
+        
+        # Запускаем новый контейнер
+        log "Starting new container..."
+        docker run -d \
+          --name website-container \
+          --restart unless-stopped \
+          --log-opt max-size=10m \
+          --log-opt max-file=3 \
+          -p 80:80 \
+          -p 443:443 \
+          -e NGINX_ENV=production \
+          "$FULL_IMAGE_NAME"
+        
+        # Проверяем статус контейнера
+        sleep 5
+        log "Container status:"
+        docker ps --filter "name=website-container" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        
+        # Проверяем здоровье приложения
+        log "Checking application health..."
+        if curl -s -f http://localhost:80 > /dev/null; then
+          log "✓ Application is healthy and responding"
+        else
+          log "✗ Application health check failed"
+          exit 1
+        fi
+        
+        # Проверяем сетевую доступность
+        log "Checking network accessibility..."
+        docker exec website-container nginx -t
+        docker exec website-container curl -s http://localhost:80 > /dev/null
+        
+        log "Deployment completed successfully!"
+        
+        EOF
+
+    - name: Verify deployment
+      run: |
+        echo "Waiting for application to be ready..."
+        sleep 10
+        
+        # Проверяем доступность приложения
+        MAX_RETRIES=10
+        RETRY_COUNT=0
+        
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+          if curl -s -f ${{ env.APP_URL }} > /dev/null; then
+            echo "✓ Application is accessible at: ${{ env.APP_URL }}"
+            break
+          else
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            echo "Attempt $RETRY_COUNT/$MAX_RETRIES: Application not ready yet..."
             sleep 5
-            curl -f http://localhost:8888 && echo "✅ Deployment successful!" || echo "❌ Health check failed."
+          fi
+        done
+        
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+          echo "✗ Application failed to become accessible"
+          exit 1
+        fi
+
+    - name: Create deployment status
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "✅ Deployment successful!"
+          echo "📦 Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.get-tag.outputs.TAG }}"
+          echo "🌐 URL: ${{ env.APP_URL }}"
+          echo "🕐 Time: $(date)"
+        else
+          echo "❌ Deployment failed!"
+          echo "Please check the logs above for details."
+        fi
