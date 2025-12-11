@@ -23,8 +23,8 @@ jobs:
         uses: appleboy/ssh-action@v1
         with:
           host: course.prafdin.ru  # или ${{ secrets.SSH_HOST }}
-          port: 2432               # ваш SSH порт
-          username: ryzhova        # ваш SSH пользователь
+          port: 2200               # ваш SSH порт
+          username: styzhev        # ваш SSH пользователь
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             echo "=== Docker deployment for ryzalena/static-site ==="
