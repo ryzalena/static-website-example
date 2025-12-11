@@ -72,6 +72,12 @@ jobs:
           echo '🔐 Логин в GitHub Container Registry...'
           echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u 'ryzalena' --password-stdin
           
+          # 2.1 Остановка системного Nginx (ОБЯЗАТЕЛЬНО!)
+          echo '🛑 Останавливаем системный Nginx...'
+          sudo systemctl stop nginx 2>/dev/null || true
+          sudo systemctl disable nginx 2>/dev/null || true
+          sudo fuser -k 80/tcp 2>/dev/null || true
+       
           # 2. Останавливаем старый контейнер
           echo '🛑 Останавливаем старый контейнер...'
           docker stop website 2>/dev/null || true
