@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Static Website with Docker Compose</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Static Website Example</h1>
+            <p>Running in Docker Compose with multiple containers</p>
+        </header>
+        
+        <main>
+            <section class="info-box">
+                <h2>📦 Docker Compose Services</h2>
+                <ul>
+                    <li><strong>Web Server:</strong> Nginx (Port 8080)</li>
+                    <li><strong>Database:</strong> PostgreSQL</li>
+                    <li><strong>Admin Panel:</strong> Adminer (Port 8081)</li>
+                </ul>
+            </section>
+            
+            <section class="info-box">
+                <h2>🔗 Useful Links</h2>
+                <ul>
+                    <li><a href="/">Home Page</a></li>
+                    <li><a href="/about.html">About Page</a></li>
+                    <li><a href="http://localhost:8081" target="_blank">Database Admin Panel</a></li>
+                </ul>
+            </section>
+            
+            <section class="info-box">
+                <h2>💡 Features</h2>
+                <ul>
+                    <li>Multi-container Docker Compose setup</li>
+                    <li>Persistent PostgreSQL database</li>
+                    <li>Health checks for all services</li>
+                    <li>Custom Docker network</li>
+                    <li>Volume for data persistence</li>
+                </ul>
+            </section>
+        </main>
+        
+        <footer>
+            <p>Lab Work #4 - Docker Compose | DevOps Course</p>
+            <p class="timestamp" id="timestamp"></p>
+        </footer>
+    </div>
+    
+    <script>
+        // Показываем текущее время
+        document.getElementById('timestamp').textContent = 
+            'Loaded at: ' + new Date().toLocaleString();
+        
+        // Простой счетчик посещений (для демонстрации)
+        let visitCount = localStorage.getItem('visitCount') || 0;
+        visitCount++;
+        localStorage.setItem('visitCount', visitCount);
+        console.log(`Page visits from this browser: ${visitCount}`);
+    </script>
+</body>
+</html>
