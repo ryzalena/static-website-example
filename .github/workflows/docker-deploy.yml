@@ -93,7 +93,7 @@ jobs:
           docker run -d \\
             --name website \\
             --restart unless-stopped \\
-            -p 8081:80 \\
+            -p 80:80 \\
             -e \"VERSION=${{ steps.tag.outputs.tag }}\" \\
             -e \"DEPLOY_TIME=\$(date)\" \\
             \"\$IMAGE_NAME\"
