@@ -44,8 +44,8 @@ jobs:
             docker run -d \
               --name static-site-container \
               --restart unless-stopped \
-              -p 8181:8181 \
-               ghcr.io/${{ github.repository }}:docker-lab3
+              -p 8181:80 \
+               ghcr.io/${{ github.repository }}:latest
           
             sleep 5
             echo "✅ Docker container deployed from registry!"
