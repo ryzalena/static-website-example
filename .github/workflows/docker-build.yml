@@ -1,53 +1,68 @@
-name: CI Check
+name: Docker Build and Push
 
 on:
   push:
     branches: [labs3]
   pull_request:
     branches: [labs3]
+  release:
+    types: [published, created]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  check:
+  build:
     runs-on: ubuntu-latest
     
+    permissions:
+      contents: read
+      packages: write
+      
     steps:
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Validate required files
-      run: |
-        echo "Проверка файлов для лабораторной работы:"
-        
-        # Обязательные файлы
-        FILES=("Dockerfile" "index.html")
-        
-        ALL_OK=true
-        for file in "${FILES[@]}"; do
-          if [ -f "$file" ]; then
-            echo "✅ $file"
-          else
-            echo "❌ $file - ОТСУТСТВУЕТ"
-            ALL_OK=false
-          fi
-        done
-        
-        if [ "$ALL_OK" = false ]; then
-          exit 1
-        fi
-        
-        echo "Все обязательные файлы на месте!"
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
     
-    - name: Check Dockerfile
+    - name: Линтер для Dockerfile
+      uses: hadolint/hadolint-action@v3.1.0
+      with:
+        dockerfile: Dockerfile
+      continue-on-error: true
+    
+    - name: Логин в GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Determine tags
+      id: meta
       run: |
-        echo "Проверка Dockerfile:"
-        if [ -f "Dockerfile" ]; then
-          echo "Содержимое:"
-          echo "---"
-          cat Dockerfile
-          echo "---"
-          
-          # Проверяем базовые инструкции
-          if grep -q "FROM" Dockerfile && grep -q "COPY" Dockerfile; then
-            echo "✅ Dockerfile выглядит корректно"
-          fi
+        if [ "${{ github.event_name }}" = "release" ]; then
+          echo "tags=ghcr.io/${{ github.repository }}:${{ github.event.release.tag_name }},ghcr.io/${{ github.repository }}:latest" >> $GITHUB_OUTPUT
+          echo "type=release" >> $GITHUB_OUTPUT
+        else
+          echo "tags=ghcr.io/${{ github.repository }}:labs3,ghcr.io/${{ github.repository }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "type=push" >> $GITHUB_OUTPUT
         fi
+        echo "Tags: ${{ steps.meta.outputs.tags }}"
+    
+    - name: Сборка и публикация Docker образа
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: |
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+    
+    - name: Уведомление о сборке
+      run: |
+        echo "✅ Docker образ успешно собран!"
+        echo "🏷️  Теги: ${{ steps.meta.outputs.tags }}"
+        echo "📦 Registry: ghcr.io"
