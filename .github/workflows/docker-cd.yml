@@ -48,6 +48,8 @@ jobs:
             docker stop static-site-container 2>/dev/null || true
             docker rm static-site-container 2>/dev/null || true
             
+            docker rm -f static-site 2>/dev/null || true
+            
             # 4. Загружаем новый образ
             echo "Pulling new image..."
             docker pull "$IMAGE_NAME"
