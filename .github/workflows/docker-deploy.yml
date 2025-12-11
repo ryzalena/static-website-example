@@ -1,12 +1,15 @@
-name: Deploy Static Site
+name: Deploy on Release or Push
 
 on:
-  # Автоматически после сборки
-  workflow_run:
-    workflows: ["Docker Build and Push"]
-    types: [completed]
+  # При релизе
+  release:
+    types: [published]
   
-  # Или вручную
+  # При пуш в labs3
+  push:
+    branches: [labs3]
+  
+  # Ручной запуск
   workflow_dispatch:
 
 jobs:
@@ -14,23 +17,44 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Deploy via SSH
-      uses: appleboy/ssh-action@v1
-      with:
-        host: course.prafdin.ru
-        username: ryzhova
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: 2200
-        script: |
-          # Простой деплой Docker контейнера
+    - name: Determine deployment type
+      id: deploy-info
+      run: |
+        if [ "${{ github.event_name }}" = "release" ]; then
+          echo "type=release" >> $GITHUB_OUTPUT
+          echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          echo "message=🚀 Deploying release: ${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+        else
+          echo "type=push" >> $GITHUB_OUTPUT
+          echo "tag=labs3" >> $GITHUB_OUTPUT
+          echo "message=📦 Deploying latest labs3 branch" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Deploy to server
+      run: |
+        echo "${{ steps.deploy-info.outputs.message }}"
+        
+        ssh -p 2200 ryzhova@course.prafdin.ru "
+          # Определяем образ
+          if [ '${{ steps.deploy-info.outputs.type }}' = 'release' ]; then
+            IMAGE_TAG='${{ github.event.release.tag_name }}'
+          else
+            IMAGE_TAG='labs3'
+          fi
+          
+          echo 'Using image tag: \$IMAGE_TAG'
+          
+          # Логин в registry
+          echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+          
+          # Останавливаем старый контейнер
           docker stop website 2>/dev/null || true
           docker rm website 2>/dev/null || true
           
-          # Токен передается через переменные окружения
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          
-          docker pull ghcr.io/ryzalena/static-website-example:labs3
+          # Запускаем новый
+          docker pull ghcr.io/ryzalena/static-website-example:\$IMAGE_TAG
           docker run -d --name website -p 80:80 \
-            ghcr.io/ryzalena/static-website-example:labs3
-          
-          echo "✅ Деплой завершен!"
+            ghcr.io/ryzalena/static-website-example:\$IMAGE_TAG
+            
+          echo '✅ Deployment complete!'
+        "
