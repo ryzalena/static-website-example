@@ -30,7 +30,7 @@ jobs:
           push: true
           # ← ИСПРАВЛЕНО: ваш правильный тег
           tags: |
-            ghcr.io/ryzalena/static-site:labs3
-            ghcr.io/ryzalena/static-site:latest
+            ghcr.io/ryzalena/static-site-lab3:latest
+
           labels: |
             org.opencontainers.image.source=https://github.com/ryzalena/static-website-example
