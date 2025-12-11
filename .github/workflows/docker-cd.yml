@@ -1,56 +1,95 @@
-name: CD Deploy
+name: CD - Docker Deploy
 
 on:
   release:
-    types: [published]
+    types: [published]  # Только при публикации релиза
+  workflow_run:
+    workflows: ["CI - Docker Static Site"]  # Запуск после успешного CI
+    types:
+      - completed
 
 jobs:
   deploy:
+    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Log in to GitHub Container Registry
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
+      - name: Extract release tag
+        id: get_tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "TAG=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            # Получаем тег из CI workflow
+            echo "TAG=latest" >> $GITHUB_OUTPUT
+          fi
+          echo "Using tag: ${{ steps.get_tag.outputs.TAG }}"
+      
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
+      
       - name: Add server to known_hosts
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -p 2200 course.prafdin.ru >> ~/.ssh/known_hosts
-
-      - name: Deploy on server
+      
+      - name: Deploy Docker container to server
         run: |
           ssh -p 2200 ryzhova@course.prafdin.ru << 'EOF'
-            # Получаем тег релиза
-            RELEASE_TAG="${{ github.event.release.tag_name }}"
-            echo "🚀 Starting deployment of version: $RELEASE_TAG"
+            echo "🚀 Starting Docker deployment..."
             
-            # Логинимся в GHCR
+            # 1. Логинимся в GitHub Container Registry
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
-            # Останавливаем и удаляем старый контейнер
-            docker stop static-site-prod 2>/dev/null || true
-            docker rm static-site-prod 2>/dev/null || true
+            # 2. Останавливаем и удаляем старый контейнер (если есть)
+            docker stop static-site-container 2>/dev/null || true
+            docker rm static-site-container 2>/dev/null || true
             
-            # Запускаем новый контейнер с тегом релиза
+            # 3. Определяем тег для образа
+            RELEASE_TAG="${{ steps.get_tag.outputs.TAG }}"
+            IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/static-site:$RELEASE_TAG"
+            
+            echo "📦 Pulling image: $IMAGE_NAME"
+            
+            # 4. Загружаем образ из registry
+            docker pull $IMAGE_NAME
+            
+            # 5. Запускаем новый контейнер с пробросом портов
+            echo "🐳 Starting container..."
             docker run -d \
-              --name static-site-prod \
+              --name static-site-container \
               --restart unless-stopped \
               -p 80:80 \
-              ghcr.io/${{ github.repository_owner }}/static-site:$RELEASE_TAG
+              -p 443:443 \
+              $IMAGE_NAME
             
-            # Проверяем работоспособность
-            sleep 5
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost)
-            echo "📡 HTTP Status: $HTTP_STATUS"
+            # 6. Проверяем, что контейнер запустился
+            sleep 3
+            CONTAINER_STATUS=$(docker inspect -f '{{.State.Status}}' static-site-container 2>/dev/null || echo "not_found")
             
-            if [ "$HTTP_STATUS" = "200" ]; then
-              echo "✅ Deployment successful! App is available at: http://app.${{ secrets.SSH_USER }}.course.prafdin.ru"
+            if [ "$CONTAINER_STATUS" = "running" ]; then
+              echo "✅ Container is running with status: $CONTAINER_STATUS"
+              
+              # 7. Проверяем доступность приложения
+              echo "🔍 Testing application..."
+              if curl -s -f http://localhost > /dev/null; then
+                echo "✅ Application is accessible at http://localhost"
+                echo "🌐 Public URL: http://app.ryzhova.course.prafdin.ru"
+              else
+                echo "⚠️  Application check failed, checking logs..."
+                docker logs static-site-container --tail 20
+              fi
             else
-              echo "❌ Deployment failed! HTTP Status: $HTTP_STATUS"
+              echo "❌ Container failed to start. Status: $CONTAINER_STATUS"
+              docker logs static-site-container --tail 30
               exit 1
             fi
+            
+            # 8. Очистка старых образов (опционально)
+            echo "🧹 Cleaning up unused Docker resources..."
+            docker system prune -f 2>/dev/null || true
+            
+            echo "🎉 Deployment completed successfully!"
           EOF
